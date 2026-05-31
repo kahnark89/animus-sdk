@@ -98,3 +98,5 @@ export class Animus {
 export type { AgentSchema, AgentState, AnimusEvent, MemoryFile };
 export { EventSystem, StateEngine, Compiler, Memory };
 export { BUILTIN_EVENTS } from './EventSystem';
+export { cortexToEvents, DEFAULT_MAPPING } from './adapters/cortex';
+export type { CortexMapping } from './adapters/cortex';
