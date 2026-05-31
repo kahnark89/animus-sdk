@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AnimusAgentSchema",
+  "description": "Defines the state variables, dynamics, and compiler settings for an Animus agent",
+  "type": "object",
+  "required": ["name", "variables", "baselines", "homeostasis_rate"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Identifier for this agent definition"
+    },
+    "variables": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ordered list of continuous state variable names, each in [0,1]"
+    },
+    "baselines": {
+      "type": "object",
+      "description": "Resting-state value per variable. State returns toward these under homeostasis.",
+      "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+    },
+    "homeostasis_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "λ — rate of return toward baseline. ~0.08 is a natural feel. Higher = faster recovery."
+    },
+    "coupling": {
+      "type": "object",
+      "description": "Cross-variable coupling matrix. coupling.energy.mood = 0.3 means energy pulls mood by 0.3 per tick.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "number" }
+      }
+    },
+    "circadian": {
+      "type": "object",
+      "description": "Circadian rhythm — shifts baselines by time of day",
+      "properties": {
+        "peaks": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9]{2}:[0-9]{2}$" },
+          "description": "HH:MM times of peak energy (typically 2 peaks)"
+        },
+        "floor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum energy level at the circadian trough (night)"
+        }
+      }
+    },
+    "noise": {
+      "type": "object",
+      "description": "Bounded autocorrelated noise added each tick — creates organic variability",
+      "properties": {
+        "magnitude": { "type": "number", "description": "Max noise amplitude per tick (e.g. 0.02)" },
+        "autocorrelation": { "type": "number", "minimum": 0, "maximum": 1, "description": "Memory of previous noise (0=white, 1=frozen)" }
+      }
+    },
+    "events": {
+      "type": "object",
+      "description": "Custom event types beyond built-ins. Each event maps variable names to kick magnitudes.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "number", "minimum": -1, "maximum": 1 }
+      }
+    },
+    "compiler": {
+      "type": "object",
+      "description": "Mood-line compiler configuration — controls natural-language output",
+      "properties": {
+        "bands": {
+          "type": "object",
+          "description": "Per-variable band labels. Each variable has low/mid/high text.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "low":  { "type": "string" },
+              "mid":  { "type": "string" },
+              "high": { "type": "string" }
+            }
+          }
+        },
+        "memory_injection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to inject top-3 spreading-activated memory nodes into the mood-line"
+        }
+      }
+    },
+    "growth": {
+      "type": "object",
+      "description": "Slow baseline growth rules — how the agent changes over months of use",
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "trigger": { "type": "string", "description": "Condition expression (e.g. 'delight_count > 100')" },
+              "shifts":  { "type": "object", "additionalProperties": { "type": "number" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

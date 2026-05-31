@@ -1,0 +1,35 @@
+{
+  "name": "animus-sdk",
+  "version": "0.1.0",
+  "description": "Persistent AI state layer — decouple your agent's soul from the LLM",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "bin": {
+    "animus": "./bin/animus.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "state",
+    "llm",
+    "persistent",
+    "personality",
+    "anthropic",
+    "openai"
+  ],
+  "author": "Capps Consulting Company LLC",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "schema/",
+    "templates/"
+  ]
+}
