@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "tsc && node --test dist/__tests__/StateEngine.test.js dist/__tests__/EventSystem.test.js dist/__tests__/Compiler.test.js dist/__tests__/Memory.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test .dist-test/__tests__/StateEngine.test.js .dist-test/__tests__/EventSystem.test.js .dist-test/__tests__/Compiler.test.js .dist-test/__tests__/Memory.test.js",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -37,6 +37,7 @@
     "bin/",
     "dist/",
     "schema/",
+    "simulator/",
     "templates/"
   ],
   "devDependencies": {
