@@ -2,7 +2,9 @@
 
 > Persistent AI state layer — decouple your agent's soul from the LLM
 
-[![npm](https://img.shields.io/badge/npm-animus--sdk-blue)](https://www.npmjs.com/package/animus-sdk)
+[![npm version](https://img.shields.io/npm/v/animus-sdk)](https://www.npmjs.com/package/animus-sdk)
+[![license](https://img.shields.io/npm/l/animus-sdk)](./LICENSE)
+[![node](https://img.shields.io/node/v/animus-sdk)](https://nodejs.org)
 
 ---
 
@@ -60,7 +62,7 @@ import { Animus } from 'animus-sdk';
 
 const agent = new Animus({
   schema: './animus/agent.schema.json',
-  memory: './animus/agent.memory.db'
+  memory: './animus/agent.memory.json',
 });
 
 // Before your LLM call — inject compiled state
@@ -180,19 +182,9 @@ Customise band labels and vocabulary per agent in the schema:
 
 ```bash
 npx animus init        # scaffold animus/ in current project
-npx animus simulate    # open browser simulator (React)
-npx animus status      # print current state variables
-```
-
----
-
-## LangChain / LlamaIndex
-
-```python
-from animus import AnimusMemory
-
-memory = AnimusMemory(schema="animus/agent.schema.json")
-chain = ConversationChain(llm=llm, memory=memory)
+npx animus simulate    # open Canvas visualizer in browser (no build step, no CDN)
+npx animus status      # print current schema and mood-line
+npx animus inject --from-cortex   # read cortex context bundle, apply events, save
 ```
 
 ---
@@ -203,6 +195,18 @@ chain = ConversationChain(llm=llm, memory=memory)
 - Game NPCs with genuine emotional arcs
 - Developer tools (AI pair programmers) that reflect time-of-day and session context
 - Any agent where "it feels dead" is a blocking complaint and better prompting hasn't fixed it
+
+---
+
+## Cortex Integration
+
+Use with [cortex-dev](https://www.npmjs.com/package/cortex-dev) to map AI comprehension state directly into agent events:
+
+```bash
+cortex context | animus inject --from-cortex
+```
+
+See the full [integration guide](https://github.com/kahnark89/cortex-dev/blob/main/INTEGRATION.md) for data-flow diagrams, mapping customization, and per-call TypeScript patterns.
 
 ---
 

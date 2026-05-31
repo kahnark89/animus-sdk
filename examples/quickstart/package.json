@@ -1,0 +1,16 @@
+{
+  "name": "animus-quickstart",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "ts-node src/agent.ts"
+  },
+  "dependencies": {
+    "animus-sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.0"
+  }
+}
