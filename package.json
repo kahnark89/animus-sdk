@@ -2,14 +2,21 @@
   "name": "animus-sdk",
   "version": "0.1.0",
   "description": "Persistent AI state layer — decouple your agent's soul from the LLM",
-  "main": "./src/index.js",
-  "types": "./src/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "bin": {
     "animus": "./bin/animus.js"
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test"
+    "test": "tsc && node --test dist/__tests__/StateEngine.test.js dist/__tests__/EventSystem.test.js dist/__tests__/Compiler.test.js dist/__tests__/Memory.test.js",
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
     "ai",
@@ -22,14 +29,18 @@
     "openai"
   ],
   "author": "Capps Consulting Company LLC",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
   },
   "files": [
     "bin/",
-    "src/",
+    "dist/",
     "schema/",
     "templates/"
-  ]
+  ],
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^22.0.0"
+  }
 }

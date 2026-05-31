@@ -52,7 +52,7 @@ function simulate() {
 
 function status() {
   const schemaPath = path.join(cwd, 'animus', 'agent.schema.json');
-  const memPath = path.join(cwd, 'animus', 'agent.memory.db');
+  const memPath = path.join(cwd, 'animus', 'agent.memory.json');
   if (!fs.existsSync(schemaPath)) {
     console.log('No animus/agent.schema.json found. Run: animus init');
     process.exit(1);
