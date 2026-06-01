@@ -1,7 +1,7 @@
 # 10_PHENOTYPE — animus-sdk (live state)
 
 > High-churn file. Any session updates this freely.
-> **Last touched:** 2026-05-31 by claude/cortex-animus-repos-eV8MC
+> **Last touched:** 2026-06-01 by claude/project-onboarding-9LqKa
 > **Pending ratification:** none
 
 ---
