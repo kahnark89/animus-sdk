@@ -41,7 +41,7 @@
     "templates/"
   ],
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3"
   }
 }
