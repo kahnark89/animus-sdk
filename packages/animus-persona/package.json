@@ -1,0 +1,52 @@
+{
+  "name": "animus-persona",
+  "version": "0.1.0",
+  "description": "Seeded personality DNA generator for AI characters. A 32-bit integer produces a complete, unique NPC schema: baselines, coupling topology, circadian rhythm, noise dynamics, event sensitivity, triggers, growth rules, and 2,000-phrase voice register. Companion to animus-sdk.",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "test": "node --test src/__tests__/persona.test.js"
+  },
+  "keywords": [
+    "ai",
+    "npc",
+    "character",
+    "personality",
+    "persona",
+    "procedural",
+    "seed",
+    "agent",
+    "companion",
+    "game-ai",
+    "affect",
+    "mood",
+    "llm",
+    "stateful-agents"
+  ],
+  "author": "Capps Consulting Company LLC",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "src/",
+    "index.js",
+    "index.d.ts"
+  ],
+  "peerDependencies": {
+    "animus-sdk": ">=0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "animus-sdk": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kahnark89/animus-persona.git"
+  },
+  "homepage": "https://github.com/kahnark89/animus-persona#readme",
+  "bugs": {
+    "url": "https://github.com/kahnark89/animus-persona/issues"
+  }
+}

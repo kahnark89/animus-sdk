@@ -65,12 +65,13 @@
   }
 
   // events: [{type, intensity?}] → per-variable summed kicks.
+  // schema.event_sensitivity[type] scales each event's kick (default 1).
   function eventsToKicks(events, schema) {
-    var defs = eventDefs(schema), kicks = {};
+    var defs = eventDefs(schema), kicks = {}, sens = schema.event_sensitivity || {};
     (events || []).forEach(function (e) {
       var def = defs[e.type];
       if (!def) return;
-      var I = e.intensity != null ? e.intensity : 1;
+      var I = (e.intensity != null ? e.intensity : 1) * (sens[e.type] != null ? sens[e.type] : 1);
       for (var v in def) kicks[v] = (kicks[v] || 0) + def[v] * I;
     });
     return kicks;

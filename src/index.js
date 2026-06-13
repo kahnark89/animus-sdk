@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const E = require('./engine');
+const { generatePersona } = require('./persona');
 
 const MEM_HALFLIFE_DAYS = 7;    // salience halves weekly unless rehearsed
 const MEM_CAP = 200;            // beats, not a transcript
@@ -32,6 +33,13 @@ class Animus {
     this.schema = typeof opts.schema === 'string'
       ? JSON.parse(fs.readFileSync(opts.schema, 'utf8'))
       : opts.schema;
+    // If schema carries a persona seed, generate and merge physics from it.
+    const pseed = this.schema.persona && typeof this.schema.persona.seed === 'number'
+      ? this.schema.persona.seed : null;
+    if (pseed != null) {
+      const generated = generatePersona(pseed, this.schema);
+      Object.assign(this.schema, generated);
+    }
     if (!Array.isArray(this.schema.variables) || !this.schema.variables.length)
       throw new Error('Animus: schema.variables must be a non-empty array');
     this.memoryPath = opts.memory || null;
@@ -296,6 +304,8 @@ class Animus {
 
   static parseEvents(text, schema) { return E.parseEvents(text, schema || {}); }
   static stripEventTags(text) { return E.stripEventTags(text); }
+  /** Generate a full schema from a 32-bit integer seed. Optionally merge with a base schema. */
+  static generatePersona(seed, base) { return generatePersona(seed, base); }
 }
 
 module.exports = { Animus, engine: E };
