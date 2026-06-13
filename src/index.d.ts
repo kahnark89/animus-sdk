@@ -1,3 +1,15 @@
+export interface AnimusTrigger {
+  condition: string;   // "elapsed_days > 1", "energy < 0.20", "delight_count > 50", etc.
+  fire: string | string[];
+  intensity?: number;
+  cooldown_steps?: number;
+}
+
+export interface AnimusGrowthRule {
+  trigger: string;    // same condition language as AnimusTrigger
+  shifts: Record<string, number>;
+}
+
 export interface AnimusSchema {
   name?: string;
   variables: string[];
@@ -8,7 +20,9 @@ export interface AnimusSchema {
   circadian?: { peaks: string[]; floor?: number; width_minutes?: number; applies_to?: string[] };
   noise?: { magnitude?: number; autocorrelation?: number };
   events?: Record<string, Record<string, number>>;   // events[name][variable] = kick at intensity 1
-  compiler?: { thresholds?: [number, number] } & Record<string, { low: string; mid: string; high: string }>;
+  triggers?: AnimusTrigger[];           // auto-fire events on elapsed time or state thresholds
+  growth?: { rules: AnimusGrowthRule[] }; // permanent baseline shifts after N events
+  compiler?: { thresholds?: [number, number]; bands?: Record<string, { very_low?: string | string[]; low?: string | string[]; mid?: string | string[]; high?: string | string[]; very_high?: string | string[] }> } & Record<string, { low: string; mid: string; high: string }>;
 }
 
 export interface AnimusEvent { type: string; intensity?: number; }
@@ -55,10 +69,12 @@ export declare const engine: {
        opts?: { date?: Date; rng?: () => number; kicks?: Record<string, number>; noiseState?: Record<string, number> }):
        { state: Record<string, number>; noiseState: Record<string, number> };
   eventsToKicks(events: AnimusEvent[], schema: AnimusSchema): Record<string, number>;
-  compile(state: Record<string, number>, schema: AnimusSchema, opts?: { date?: Date; memory?: string | null }): string;
+  compile(state: Record<string, number>, schema: AnimusSchema, opts?: { date?: Date; memory?: string | null; trends?: Record<string, 'rising' | 'falling'> }): string;
   band(v: number, thresholds?: [number, number]): 'low' | 'mid' | 'high';
+  band5(v: number): 'very_low' | 'low' | 'mid' | 'high' | 'very_high';
   parseEvents(text: string, schema?: AnimusSchema): AnimusEvent[];
   stripEventTags(text: string): string;
   circadianFactor(schema: AnimusSchema, date: Date): number;
+  effectiveBaselines(schema: AnimusSchema, date: Date): Record<string, number>;
   BUILTIN_EVENTS: Record<string, Record<string, number>>;
 };
