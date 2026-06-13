@@ -1,3 +1,17 @@
+export interface PersonaTraits {
+  valence: number;
+  arousal: number;
+  stability: number;
+  sociability: number;
+  drive: number;
+}
+
+export interface AnimusPersona {
+  seed: number;
+  traits: PersonaTraits;
+  voice: 'direct' | 'vivid' | 'physiological' | 'social';
+}
+
 export interface AnimusTrigger {
   condition: string;   // "elapsed_days > 1", "energy < 0.20", "delight_count > 50", etc.
   fire: string | string[];
@@ -20,8 +34,10 @@ export interface AnimusSchema {
   circadian?: { peaks: string[]; floor?: number; width_minutes?: number; applies_to?: string[] };
   noise?: { magnitude?: number; autocorrelation?: number };
   events?: Record<string, Record<string, number>>;   // events[name][variable] = kick at intensity 1
+  event_sensitivity?: Record<string, number>;        // scales each event's kick magnitude (default 1.0)
   triggers?: AnimusTrigger[];           // auto-fire events on elapsed time or state thresholds
   growth?: { rules: AnimusGrowthRule[] }; // permanent baseline shifts after N events
+  persona?: { seed: number } | AnimusPersona; // integer seed → auto-generate personality physics
   compiler?: { thresholds?: [number, number]; bands?: Record<string, { very_low?: string | string[]; low?: string | string[]; mid?: string | string[]; high?: string | string[]; very_high?: string | string[] }> } & Record<string, { low: string; mid: string; high: string }>;
 }
 
@@ -62,6 +78,8 @@ export declare class Animus {
   cleanText(text: string): string;
   static parseEvents(text: string, schema?: AnimusSchema): AnimusEvent[];
   static stripEventTags(text: string): string;
+  /** Generate a complete schema from a 32-bit integer seed. Pass base to preserve name/variables/events. */
+  static generatePersona(seed: number, base?: Partial<AnimusSchema>): AnimusSchema;
 }
 
 export declare const engine: {
