@@ -1,34 +1,31 @@
 {
   "name": "animus-sdk",
-  "version": "0.1.0",
-  "description": "Persistent AI state layer — decouple your agent's soul from the LLM",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "require": "./dist/index.js",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
+  "version": "0.2.1",
+  "description": "Affective state engine for AI characters \u2014 persistent mood, energy, and circadian rhythm compiled into your LLM calls. The layer between memory and the model.",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "bin": {
     "animus": "./bin/animus.js"
   },
   "scripts": {
-    "build": "tsc",
-    "test": "tsc -p tsconfig.test.json && node --test .dist-test/__tests__/StateEngine.test.js .dist-test/__tests__/EventSystem.test.js .dist-test/__tests__/Compiler.test.js .dist-test/__tests__/Memory.test.js",
-    "prepublishOnly": "npm run build && npm test"
+    "test": "node --test src/__tests__/animus.test.js"
   },
   "keywords": [
     "ai",
     "agent",
     "state",
-    "llm",
-    "persistent",
     "personality",
+    "mood",
+    "affect",
+    "companion",
+    "npc",
+    "character",
+    "emotional-state",
+    "llm",
+    "stateful-agents",
     "anthropic",
-    "openai"
+    "openai",
+    "game-ai"
   ],
   "author": "Capps Consulting Company LLC",
   "license": "MIT",
@@ -37,13 +34,16 @@
   },
   "files": [
     "bin/",
-    "dist/",
+    "src/",
     "schema/",
-    "simulator/",
     "templates/"
   ],
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^6.0.3"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kahnark89/animus-sdk.git"
+  },
+  "homepage": "https://github.com/kahnark89/animus-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/kahnark89/animus-sdk/issues"
   }
 }

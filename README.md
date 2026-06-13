@@ -1,27 +1,28 @@
 # animus-sdk
 
-> Persistent AI state layer — decouple your agent's soul from the LLM
+> The affective state engine for AI characters. Memory tells your agent what it knows — Animus tells it how it *is*.
 
-[![npm version](https://img.shields.io/npm/v/animus-sdk)](https://www.npmjs.com/package/animus-sdk)
-[![license](https://img.shields.io/npm/l/animus-sdk)](./LICENSE)
-[![node](https://img.shields.io/node/v/animus-sdk)](https://nodejs.org)
+[![npm](https://img.shields.io/badge/npm-animus--sdk-blue)](https://www.npmjs.com/package/animus-sdk)
 
 ---
 
-## The Problem
+## The category gap
 
-Every AI agent or chatbot built on an LLM shares the same structural defect: the model is stateless, consistent, and always-available — which is exactly why it feels dead.
+The agent-memory market is solved and crowded — Mem0, Letta, Zep, Graphiti all give your agent *facts*: who the user is, what was said, what changed. Plug one in and your agent remembers everything.
 
-The standard fix is more prompting: longer persona descriptions, injected conversation history, memory APIs. None of it works because the fix is aimed at the wrong layer. The LLM is not broken. The architecture is wrong.
+And it still feels dead.
 
-**Standard approach:**
+Because memory is not the missing layer. **Affect is.** A character with perfect recall and no internal state is a database with a voice. What makes a companion, an NPC, or an assistant feel alive isn't what it knows — it's that it has a *now*: a mood that today's events pushed off baseline, energy that follows a daily rhythm, a state that was different yesterday and will drift again tomorrow.
+
+No memory layer models that. Animus is the layer that does.
+
 ```
-User input → [system prompt + history] → LLM → response
-                     ↑
-            persona lives here — vendor-locked, stateless, flat
+What it knows        →  memory layer   (Mem0, Letta, Zep — keep yours)
+How it is right now  →  ANIMUS         (this package)
+How it speaks        →  the LLM        (any vendor, swappable)
 ```
 
-This produces agents that are vendor-locked, inconsistent across sessions, flat (no rhythm, no organic change), and offline-incapable.
+Animus is **not** a memory product and doesn't compete with one. It composes with all of them.
 
 ---
 
@@ -46,7 +47,24 @@ State Engine (local, persistent, offline)
       parse events → feed back into state engine
 ```
 
-The LLM never touches state directly. The mood-line is the only interface.
+The LLM never touches state directly. The mood-line is the only interface. That one constraint buys you everything below:
+
+- **Vendor-portable personality.** The state lives in your files, not a vendor's system prompt. Swap Claude for Gemini for a local model mid-week — the character wakes up the same character.
+- **Tunable by physics, not prose.** "Make her moods last longer" is one parameter (λ), not a prompt-engineering session.
+- **Offline-capable aliveness.** State updates need zero network calls. The character's inner life keeps running when the cloud doesn't.
+- **Deterministic and inspectable.** Every state change traces to an event or an equation. No "the model decided to be sad today."
+
+---
+
+## Who this is for
+
+**1. AI companion products.** Your retention problem is a flatness problem: users churn when the character feels like the same vending machine every session. Animus gives each user's companion a persistent, drifting, circadian inner life — per-user, on your infrastructure, portable across model upgrades.
+
+**2. Game NPCs.** Emotional arcs across play sessions without scripting them. An NPC who is still rattled tomorrow by what the player did today — driven by a 5-variable dynamical system, not a dialogue tree.
+
+**3. AI pair programmers / desktop assistants.** Time-of-day energy, session momentum, focus state. The difference between a tool and a colleague.
+
+The qualifying complaint is always the same: *"it feels dead, and better prompting hasn't fixed it."* Correct — prompting can't fix it, because it's an architecture problem.
 
 ---
 
@@ -62,7 +80,7 @@ import { Animus } from 'animus-sdk';
 
 const agent = new Animus({
   schema: './animus/agent.schema.json',
-  memory: './animus/agent.memory.json',
+  memory: './animus/agent.memory.db'
 });
 
 // Before your LLM call — inject compiled state
@@ -79,7 +97,7 @@ const response = await anthropic.messages.create({ messages, model: 'claude-opus
 agent.apply(parseEvents(response.content));
 ```
 
-Works with Anthropic SDK, OpenAI SDK, Google Gemini, Ollama, or any HTTP LLM endpoint.
+Works with Anthropic SDK, OpenAI SDK, Google Gemini, Ollama, or any HTTP LLM endpoint. Three lines around the LLM call you already have.
 
 ---
 
@@ -154,13 +172,34 @@ agent.compile();
 //    It's midday, your most energetic time. You've been thinking about the auth module lately."
 ```
 
-Customise band labels and vocabulary per agent in the schema:
+Customize band labels and vocabulary per agent in the schema (flat per-variable keys are canonical; a nested `bands` object is also accepted). Set `"memory_injection": false` to keep episodic memory out of the mood-line:
 
 ```json
 "compiler": {
   "mood":   { "low": "a bit flat", "mid": "steady", "high": "bright and joyful" },
-  "energy": { "low": "low-energy", "mid": "focused", "high": "bouncy and energised" }
+  "energy": { "low": "low-energy", "mid": "focused", "high": "bouncy and energized" }
 }
+```
+
+---
+
+## Animus alongside a memory layer
+
+| Layer | Question it answers | Examples |
+|---|---|---|
+| Memory | "What do I know about this user/world?" | Mem0, Letta, Zep, Graphiti |
+| **Animus** | **"What state am I in right now?"** | **this package** |
+| LLM | "What do I say?" | any vendor |
+
+```typescript
+const messages = [
+  { role: 'system', content: [
+      baseSystemPrompt,
+      agent.compile(),                    // Animus: how it is
+      await mem0.getRelevant(userInput),  // memory layer: what it knows
+    ].join('\n\n') },
+  ...history
+];
 ```
 
 ---
@@ -170,7 +209,7 @@ Customise band labels and vocabulary per agent in the schema:
 | Without Animus | With Animus |
 |---|---|
 | Persona in system prompt | Persona in state engine — truly persistent |
-| Consistent across sessions (dead) | State-driven across sessions (alive) |
+| Identical across sessions (dead) | State-driven across sessions (alive) |
 | Vendor-locked | Swap LLMs freely — state is yours |
 | Falls silent offline | Degrades gracefully offline |
 | Tuned by prompting | Tuned by physical parameters |
@@ -182,36 +221,36 @@ Customise band labels and vocabulary per agent in the schema:
 
 ```bash
 npx animus init        # scaffold animus/ in current project
-npx animus simulate    # open Canvas visualizer in browser (no build step, no CDN)
-npx animus status      # print current schema and mood-line
-npx animus inject --from-cortex   # read cortex context bundle, apply events, save
+npx animus simulate    # build animus/simulator.html — the live engine on your schema
+npx animus status      # show schema, λ, and persisted state
+```
+
+`simulate` generates one self-contained HTML file with the *shipping* engine (same `engine.js` that runs in Node) inlined against your schema — open it in any browser, kick events, drag λ, and watch the traces and the compiled mood-line respond. No server, no build step.
+
+---
+
+## Closing the loop: event tags
+
+Tell your LLM (in its system prompt) to annotate emotionally significant moments with `[[event]]` or `[[event:intensity]]` tags. `parseEvents` extracts only event names defined in your schema or the built-ins — **raw LLM text can never invent a state change** — and `cleanText` strips the tags before you show the reply:
+
+```typescript
+const reply  = response.content[0].text;        // "You fixed it! [[delight:0.9]]"
+agent.apply(agent.parseEvents(reply));           // state engine absorbs the moment
+display(agent.cleanText(reply));                 // "You fixed it!"
 ```
 
 ---
 
-## Target Use Cases
+## Roadmap
 
-- AI companions / assistants that need to feel consistent and growing over time
-- Game NPCs with genuine emotional arcs
-- Developer tools (AI pair programmers) that reflect time-of-day and session context
-- Any agent where "it feels dead" is a blocking complaint and better prompting hasn't fixed it
-
----
-
-## Cortex Integration
-
-Use with [cortex-dev](https://www.npmjs.com/package/cortex-dev) to map AI comprehension state directly into agent events:
-
-```bash
-cortex context | animus inject --from-cortex
-```
-
-See the full [integration guide](https://github.com/kahnark89/cortex-dev/blob/main/INTEGRATION.md) for data-flow diagrams, mapping customization, and per-call TypeScript patterns.
+- Python binding (`AnimusMemory` for LangChain / LlamaIndex)
+- Streaming event parser for token-by-token responses
+- Multi-agent shared-world coupling
 
 ---
 
-## Derived from Prism
+## Provenance
 
-Animus implements the soul/mouth separation architecture developed for the Prism children's learning companion. The state engine, update equation, and mood-line compiler are direct extractions. The pattern is domain-general.
+Animus extracts the "Living Engine" built for Prism, a learning environment for young children whose design bar was unusually high: a four-year-old must believe its characters are alive on day 40, on a device that must keep its inner life running offline, with every influence on the child inspectable by a parent. The soul/mouth separation, the update equation, and the mood-line compiler all came out of meeting that bar. The pattern is domain-general.
 
 *Capps Consulting Company LLC*
