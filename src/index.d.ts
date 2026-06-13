@@ -1,0 +1,56 @@
+export interface AnimusSchema {
+  name?: string;
+  variables: string[];
+  baselines: Record<string, number>;
+  homeostasis_rate?: number;            // λ, default 0.08
+  step_minutes?: number;                // wall-clock minutes per step, default 1
+  coupling?: Record<string, Record<string, number>>; // coupling[source][target] = κ
+  circadian?: { peaks: string[]; floor?: number; width_minutes?: number; applies_to?: string[] };
+  noise?: { magnitude?: number; autocorrelation?: number };
+  events?: Record<string, Record<string, number>>;   // events[name][variable] = kick at intensity 1
+  compiler?: { thresholds?: [number, number] } & Record<string, { low: string; mid: string; high: string }>;
+}
+
+export interface AnimusEvent { type: string; intensity?: number; }
+
+export interface AnimusOptions {
+  schema: string | AnimusSchema;  // path to JSON, or the object itself
+  memory?: string;                // path to persistent state db (JSON); omit for in-memory
+  now?: () => Date;               // injectable clock (tests)
+  rng?: () => number;             // injectable randomness (tests)
+}
+
+export declare class Animus {
+  constructor(opts: AnimusOptions);
+  /** Advance state by elapsed wall-clock time (homeostasis, circadian, noise). */
+  tick(now?: Date): this;
+  /** Apply events as one kicked update step. */
+  apply(events: AnimusEvent[]): this;
+  /** Store an episodic beat; salience decays with a 7-day halflife. */
+  remember(text: string, salience?: number): this;
+  /** Most salient surviving memory text, or null. */
+  topMemory(): string | null;
+  /** Tick to now and compile state into the mood-line paragraph for your LLM call. */
+  compile(): string;
+  /** Read-only copy of the current state vector. */
+  state(): Record<string, number>;
+  /** Extract [[event:intensity]] tags from LLM output (unknown tags ignored). */
+  parseEvents(text: string): AnimusEvent[];
+  /** LLM output with event tags removed. */
+  cleanText(text: string): string;
+  static parseEvents(text: string, schema?: AnimusSchema): AnimusEvent[];
+  static stripEventTags(text: string): string;
+}
+
+export declare const engine: {
+  step(state: Record<string, number>, schema: AnimusSchema,
+       opts?: { date?: Date; rng?: () => number; kicks?: Record<string, number>; noiseState?: Record<string, number> }):
+       { state: Record<string, number>; noiseState: Record<string, number> };
+  eventsToKicks(events: AnimusEvent[], schema: AnimusSchema): Record<string, number>;
+  compile(state: Record<string, number>, schema: AnimusSchema, opts?: { date?: Date; memory?: string | null }): string;
+  band(v: number, thresholds?: [number, number]): 'low' | 'mid' | 'high';
+  parseEvents(text: string, schema?: AnimusSchema): AnimusEvent[];
+  stripEventTags(text: string): string;
+  circadianFactor(schema: AnimusSchema, date: Date): number;
+  BUILTIN_EVENTS: Record<string, Record<string, number>>;
+};
