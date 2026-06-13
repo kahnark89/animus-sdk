@@ -45,5 +45,8 @@
   "homepage": "https://github.com/kahnark89/animus-sdk#readme",
   "bugs": {
     "url": "https://github.com/kahnark89/animus-sdk/issues"
-  }
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }
