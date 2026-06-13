@@ -18,9 +18,11 @@
 
   // Box–Muller gaussian. rng = () => [0,1) (injectable for tests).
   function randn(rng) {
-    var u = 0, v = 0;
-    while (u === 0) u = rng();
-    while (v === 0) v = rng();
+    var u = 0, v = 0, tries = 0;
+    while (u === 0 && tries++ < 50) u = rng();
+    tries = 0;
+    while (v === 0 && tries++ < 50) v = rng();
+    if (u === 0 || v === 0) return 0; // degenerate rng fallback
     return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   }
 
@@ -31,7 +33,7 @@
     var c = schema.circadian;
     if (!c || !c.peaks || !c.peaks.length) return 1;
     var floor = c.floor != null ? c.floor : 0.15;
-    var sigma = c.width_minutes || 150;
+    var sigma = Math.max(1, c.width_minutes || 150);
     var now = minutesOfDay(date), best = 0;
     for (var i = 0; i < c.peaks.length; i++) {
       var p = c.peaks[i].split(':');

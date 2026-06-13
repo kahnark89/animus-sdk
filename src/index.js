@@ -30,9 +30,13 @@ class Animus {
   /** @param {{schema: string|object, memory?: string, now?: () => Date, rng?: () => number}} opts */
   constructor(opts) {
     if (!opts || !opts.schema) throw new Error('Animus: { schema } is required');
-    this.schema = typeof opts.schema === 'string'
-      ? JSON.parse(fs.readFileSync(opts.schema, 'utf8'))
-      : opts.schema;
+    try {
+      this.schema = typeof opts.schema === 'string'
+        ? JSON.parse(fs.readFileSync(opts.schema, 'utf8'))
+        : opts.schema;
+    } catch (e) {
+      throw new Error('Animus: invalid schema — ' + e.message);
+    }
     // If schema carries a persona seed, generate and merge physics from it.
     const pseed = this.schema.persona && typeof this.schema.persona.seed === 'number'
       ? this.schema.persona.seed : null;
@@ -42,6 +46,8 @@ class Animus {
     }
     if (!Array.isArray(this.schema.variables) || !this.schema.variables.length)
       throw new Error('Animus: schema.variables must be a non-empty array');
+    // Deep-clone baselines so _evalGrowth mutations don't corrupt the caller's object.
+    this.schema = Object.assign({}, this.schema, { baselines: Object.assign({}, this.schema.baselines) });
     this.memoryPath = opts.memory || null;
     this.now = opts.now || (() => new Date());
     this.rng = opts.rng || Math.random;
