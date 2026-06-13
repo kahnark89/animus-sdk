@@ -33,6 +33,17 @@
     "magnitude": 0.02,
     "autocorrelation": 0.7
   },
+  "triggers": [
+    { "condition": "elapsed_days > 1",  "fire": "long_absence", "cooldown_steps": 1440 },
+    { "condition": "energy < 0.20",     "fire": "fatigue",      "cooldown_steps": 60  }
+  ],
+  "growth": {
+    "rules": [
+      { "trigger": "delight_count > 50",  "shifts": { "mood": 0.02, "affection": 0.01 } },
+      { "trigger": "reunion_count > 20",  "shifts": { "affection": 0.03 } },
+      { "trigger": "fatigue_count > 30",  "shifts": { "energy": -0.02 } }
+    ]
+  },
   "compiler": {
     "mood": {
       "low": "a bit flat",

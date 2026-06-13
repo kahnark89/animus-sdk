@@ -1,6 +1,6 @@
 {
   "name": "animus-sdk",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Affective state engine for AI characters \u2014 persistent mood, energy, and circadian rhythm compiled into your LLM calls. The layer between memory and the model.",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
