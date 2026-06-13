@@ -200,7 +200,7 @@ Reordering this list silently reassigns all existing seeds to different personas
 ### The 5 Trait Dimensions
 
 | Trait | Controls |
-|-------|----------|
+|-------|---------|
 | **valence** | Emotional set point — negative (0) to positive (1) |
 | **arousal** | Energy level and reactivity |
 | **stability** | Emotional inertia and resilience |
