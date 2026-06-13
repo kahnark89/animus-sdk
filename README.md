@@ -4,6 +4,10 @@
 
 [![npm](https://img.shields.io/badge/npm-animus--sdk-blue)](https://www.npmjs.com/package/animus-sdk)
 
+**[▶ Live simulator — no install needed](https://kahnark89.github.io/animus-sdk)**
+
+> *"You're steady; low-energy, quiet; interested; fond; on task. It's late evening, a low-energy stretch of your day."* — compiled at 2:49 AM from the circadian engine reading the real clock
+
 ---
 
 ## The category gap
