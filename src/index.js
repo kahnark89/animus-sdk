@@ -5,9 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const E = require('./engine');
 
-const MEM_HALFLIFE_DAYS = 7;   // salience halves weekly unless rehearsed
-const MEM_CAP = 200;           // beats, not a transcript
-const MAX_CATCHUP_STEPS = 240; // returning after a week ≠ 10k steps
+const MEM_HALFLIFE_DAYS = 7;    // salience halves weekly unless rehearsed
+const MEM_CAP = 200;            // beats, not a transcript
+const MAX_CATCHUP_STEPS = 240;  // returning after a week ≠ 10k steps
+const TOPIC_CAP = 500;          // distinct topics tracked before pruning
+const TOPIC_HALFLIFE_DAYS = 7;  // frequency weight halves weekly
 
 class Animus {
   /** @param {{schema: string|object, memory?: string, now?: () => Date, rng?: () => number}} opts */
@@ -27,12 +29,16 @@ class Animus {
 
   _load() {
     if (this.memoryPath && fs.existsSync(this.memoryPath)) {
-      try { return JSON.parse(fs.readFileSync(this.memoryPath, 'utf8')); }
+      try {
+        const db = JSON.parse(fs.readFileSync(this.memoryPath, 'utf8'));
+        if (!db.topicFreq) db.topicFreq = {}; // migrate existing dbs
+        return db;
+      }
       catch (e) { /* corrupt db: fall through to fresh state, never crash the host app */ }
     }
     const state = {};
     this.schema.variables.forEach(v => { state[v] = this.schema.baselines[v] != null ? this.schema.baselines[v] : 0.5; });
-    return { state, noiseState: {}, lastTick: this.now().getTime(), memories: [], eventLog: [] };
+    return { state, noiseState: {}, lastTick: this.now().getTime(), memories: [], eventLog: [], topicFreq: {} };
   }
 
   _save() {
@@ -86,23 +92,80 @@ class Animus {
     return this;
   }
 
+  /**
+   * Log topics from a conversation turn. Call this after each LLM exchange with
+   * a comma-separated string or array of topic words/phrases from the turn.
+   * The engine tracks frequency × recency and surfaces the top ones automatically
+   * in compile(). You never need to call remember() for conversational topics.
+   *
+   * @param {string|string[]} topics — e.g. "auth, onboarding" or ["auth","onboarding"]
+   */
+  gist(topics) {
+    const now = this.now().getTime();
+    const list = Array.isArray(topics)
+      ? topics.map(t => String(t).trim()).filter(Boolean)
+      : String(topics).split(/[,;]+/).map(t => t.trim()).filter(Boolean);
+    if (!this.db.topicFreq) this.db.topicFreq = {};
+    list.forEach(t => {
+      if (!this.db.topicFreq[t]) this.db.topicFreq[t] = { count: 0, lastSeen: 0 };
+      this.db.topicFreq[t].count++;
+      this.db.topicFreq[t].lastSeen = now;
+    });
+    // Prune to cap: drop lowest-scored topics
+    const keys = Object.keys(this.db.topicFreq);
+    if (keys.length > TOPIC_CAP) {
+      const sorted = keys.map(k => [k, this._topicScore(k, now)]).sort((a, b) => b[1] - a[1]);
+      sorted.slice(TOPIC_CAP).forEach(([k]) => delete this.db.topicFreq[k]);
+    }
+    this._save();
+    return this;
+  }
+
+  _topicScore(topic, now) {
+    const e = (this.db.topicFreq || {})[topic];
+    if (!e) return 0;
+    const ageDays = ((now != null ? now : this.now().getTime()) - e.lastSeen) / 86400000;
+    return e.count * Math.pow(0.5, ageDays / TOPIC_HALFLIFE_DAYS);
+  }
+
   _memWeight(m) {
     const ageDays = (this.now().getTime() - m.t) / 86400000;
     return m.salience * Math.pow(0.5, ageDays / MEM_HALFLIFE_DAYS);
   }
 
-  /** Most salient surviving memory, or null. */
+  /**
+   * Top N topics by frequency × recency, drawn from gist() calls and remember() beats.
+   * This is what compile() injects — you can also call it directly to inspect.
+   */
+  topMemories(n) {
+    n = n != null ? n : 3;
+    const now = this.now().getTime();
+    const candidates = [];
+    Object.keys(this.db.topicFreq || {}).forEach(t => {
+      const score = this._topicScore(t, now);
+      if (score > 0.05) candidates.push({ text: t, score });
+    });
+    this.db.memories.forEach(m => {
+      const score = this._memWeight(m);
+      if (score > 0.05) candidates.push({ text: m.text, score });
+    });
+    return candidates.sort((a, b) => b.score - a.score).slice(0, n).map(c => c.text);
+  }
+
+  /** Most salient surviving memory, or null. Kept for backward compat; topMemories() is richer. */
   topMemory() {
-    if (!this.db.memories.length) return null;
-    const best = this.db.memories.reduce((a, b) => this._memWeight(a) >= this._memWeight(b) ? a : b);
-    return this._memWeight(best) > 0.05 ? best.text : null;
+    return this.topMemories(1)[0] || null;
   }
 
   /** The product: tick to now, compile state → the one paragraph the LLM sees. */
   compile() {
     this.tick();
     const inject = !(this.schema.compiler && this.schema.compiler.memory_injection === false);
-    return E.compile(this.db.state, this.schema, { date: this.now(), memory: inject ? this.topMemory() : null });
+    const topics = inject ? this.topMemories(3) : [];
+    const memory = topics.length === 0 ? null
+      : topics.length === 1 ? topics[0]
+      : topics.slice(0, -1).join(', ') + ' and ' + topics[topics.length - 1];
+    return E.compile(this.db.state, this.schema, { date: this.now(), memory });
   }
 
   /** Read-only copy of the live state vector. */

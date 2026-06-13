@@ -28,7 +28,15 @@ export declare class Animus {
   apply(events: AnimusEvent[]): this;
   /** Store an episodic beat; salience decays with a 7-day halflife. */
   remember(text: string, salience?: number): this;
-  /** Most salient surviving memory text, or null. */
+  /**
+   * Log topics from a conversation turn. Call after each LLM exchange.
+   * Accepts a comma/semicolon-separated string or an array of topic phrases.
+   * The engine tracks frequency × recency and surfaces the top topics automatically in compile().
+   */
+  gist(topics: string | string[]): this;
+  /** Top N topics by frequency × recency (from gist() calls and remember() beats). */
+  topMemories(n?: number): string[];
+  /** Most salient surviving topic, or null. Kept for backward compat; topMemories() is richer. */
   topMemory(): string | null;
   /** Tick to now and compile state into the mood-line paragraph for your LLM call. */
   compile(): string;
