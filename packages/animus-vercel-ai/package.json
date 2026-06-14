@@ -1,0 +1,16 @@
+{
+  "name": "@animus-sdk/vercel-ai",
+  "version": "2.0.0",
+  "description": "Vercel AI SDK middleware, streaming transforms, and Next.js helpers for animus-sdk",
+  "main": "./index.js",
+  "license": "MIT",
+  "author": "Kahn Capps <kahn@cappsfamilyenterprises.com>",
+  "keywords": ["animus-sdk", "vercel-ai", "ai-sdk", "middleware", "affective-ai", "emotional-ai"],
+  "engines": { "node": ">=18.0.0" },
+  "files": ["index.js"],
+  "peerDependencies": { "animus-sdk": "^2.0.0" },
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/kahnark89/animus-sdk.git" },
+  "bugs": { "url": "https://github.com/kahnark89/animus-sdk/issues" },
+  "homepage": "https://github.com/kahnark89/animus-sdk#readme"
+}
