@@ -1,5 +1,5 @@
 {
-  "name": "@animus-sdk/crewai",
+  "name": "@kahnark89/animus-crewai",
   "version": "2.0.0",
   "description": "CrewAI integration for animus-sdk — AnimusTool, AnimusCrew, and inter-agent emotional contagion",
   "main": "./index.js",

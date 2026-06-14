@@ -1,5 +1,5 @@
 {
-  "name": "@animus-sdk/langchain",
+  "name": "@kahnark89/animus-langchain",
   "version": "2.0.0",
   "description": "LangChain and LangGraph integration for animus-sdk — AnimusNode, AnimusRunnable, LCEL support",
   "main": "./index.js",

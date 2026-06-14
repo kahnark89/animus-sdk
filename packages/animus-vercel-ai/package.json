@@ -1,5 +1,5 @@
 {
-  "name": "@animus-sdk/vercel-ai",
+  "name": "@kahnark89/animus-vercel-ai",
   "version": "2.0.0",
   "description": "Vercel AI SDK middleware, streaming transforms, and Next.js helpers for animus-sdk",
   "main": "./index.js",
