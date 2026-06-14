@@ -1,5 +1,5 @@
 {
-  "name": "@animus-sdk/mem0",
+  "name": "@kahnark89/animus-mem0",
   "version": "2.0.0",
   "description": "Mem0 bridge for animus-sdk — bidirectional sync between Mem0 semantic memory and Animus affective state",
   "main": "./index.js",
