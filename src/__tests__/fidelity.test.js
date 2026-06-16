@@ -66,6 +66,70 @@ test('set-point drift stays within ±max under Gaussian steps', () => {
   }
 });
 
+section('Baseline-shift idempotency');
+
+test('baseline tracks original + shift, not a runaway, across many simulated long-gap ticks', () => {
+  const os   = require('os');
+  const path = require('path');
+  const { Animus } = require('../index');
+
+  const schemaBase = {
+    id: 'bl-idem-test',
+    baselines: { mood: 0.5, energy: 0.5, curiosity: 0.5, affection: 0.5, focus: 0.5 },
+    homeostasis_rate: 0.08,
+    noise: { magnitude: 0.0 },        // remove noise — only drift moves baselines
+    setpoint_drift: { rate_per_day: 0.05, max: 0.2 },
+    circadian: { peaks: [8, 20], floor: 0.6, applies_to: ['energy'] },
+    triggers: [],
+  };
+  const memDir = path.join(os.tmpdir(), `animus-bl-test-${Date.now()}`);
+  const a = new Animus({ schema: schemaBase, store: new (require('../store').MemoryStore)(), save: false });
+
+  // Force a non-trivial drift shift into db directly, then call _applyBaselineShifts repeatedly
+  const shift = 0.15;
+  for (const v of engine.VARS) a.db.baselineShifts[v] = shift;
+
+  for (let i = 0; i < 20; i++) a._applyBaselineShifts();
+
+  for (const v of engine.VARS) {
+    const got = a.schema.baselines[v];
+    const expected = engine.clamp01(0.5 + shift);
+    assert(
+      Math.abs(got - expected) < 1e-9,
+      `baselines.${v} = ${got.toFixed(6)}, expected ${expected.toFixed(6)} (original 0.5 + shift ${shift}). Shift was re-accumulated.`
+    );
+  }
+});
+
+test('baseline stays bounded through growth-rule firing on a long-lived instance', () => {
+  const { Animus } = require('../index');
+  const { MemoryStore } = require('../store');
+
+  const schema = {
+    id: 'growth-bl-test',
+    baselines: { mood: 0.50, energy: 0.50, curiosity: 0.50, affection: 0.50, focus: 0.50 },
+    homeostasis_rate: 0.08,
+    noise: { magnitude: 0.0 },
+    growth: [{ condition: 'mood > 0.4', variable: 'mood', delta: 0.10, max_shift: 0.25, cooldown_days: 0 }],
+    triggers: [],
+  };
+  const a = new Animus({ schema, store: new MemoryStore(), save: false });
+  const original = 0.50;
+
+  // Manually fire the growth rule 10 times — each should add at most max_shift total
+  for (let i = 0; i < 10; i++) {
+    a.db.baselineShifts = a.db.baselineShifts || {};
+    const current = a.db.baselineShifts['mood'] || 0;
+    const delta = Math.min(0.10, 0.25 - current); // respects max_shift
+    if (delta > 0) a.db.baselineShifts['mood'] = current + delta;
+    a._applyBaselineShifts();
+  }
+
+  const got = a.schema.baselines['mood'];
+  assert(got <= original + 0.25 + 1e-9, `mood baseline ${got.toFixed(4)} exceeded original(${original}) + max_shift(0.25)`);
+  assert(got >= original - 1e-9, `mood baseline ${got.toFixed(4)} fell below original (unexpected)`);
+});
+
 section('Compiler anti-repetition');
 
 const persona = generatePersona(42);

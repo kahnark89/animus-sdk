@@ -116,8 +116,9 @@ class Animus {
   constructor(opts = {}) {
     const r = opts.__resolved || Animus._resolve(opts);
 
-    this.schema     = r.schema;
-    this.infer      = r.infer;
+    this.schema         = r.schema;
+    this._baseBaselines = { ...this.schema.baselines }; // pristine copy — shifts applied on top, never accumulated
+    this.infer          = r.infer;
     this.storeKey   = r.storeKey;
     this.memoryPath = r.memoryPath;   // retained for back-compat / tooling (default FileStore)
     this.store      = r.store;
@@ -643,9 +644,9 @@ class Animus {
 
   _applyBaselineShifts() {
     const shifts = this.db.baselineShifts || {};
-    for (const [v, delta] of Object.entries(shifts)) {
-      if (this.schema.baselines[v] !== undefined) {
-        this.schema.baselines[v] = engine.clamp01(this.schema.baselines[v] + delta);
+    for (const v of engine.VARS) {
+      if (this._baseBaselines[v] !== undefined) {
+        this.schema.baselines[v] = engine.clamp01(this._baseBaselines[v] + (shifts[v] || 0));
       }
     }
   }
