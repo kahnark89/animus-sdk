@@ -1,5 +1,6 @@
 {
   "name": "my-agent",
+  "id": "my-agent",
   "variables": [
     "mood",
     "energy",
@@ -38,11 +39,11 @@
     "reunion": 1.0,
     "fatigue": 1.0,
     "confusion": 1.0,
-    "long_absence": 1.0
+    "absence": 1.0
   },
   "triggers": [
-    { "condition": "elapsed_days > 1",  "fire": "long_absence", "cooldown_steps": 1440 },
-    { "condition": "energy < 0.20",     "fire": "fatigue",      "cooldown_steps": 60  }
+    { "condition": "elapsed_days > 1",  "fire": "absence", "cooldown_steps": 1440 },
+    { "condition": "energy < 0.20",     "fire": "fatigue", "cooldown_steps": 60  }
   ],
   "growth": {
     "rules": [

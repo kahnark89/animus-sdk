@@ -1,6 +1,6 @@
 {
   "name": "animus-sdk",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Persistent affective state engine for AI characters and LLM agents. Physics-based emotional continuity via homeostasis, Ornstein-Uhlenbeck noise, circadian rhythms, and real elapsed-time simulation.",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -8,7 +8,10 @@
     "animus": "bin/animus.js"
   },
   "scripts": {
-    "test": "node src/__tests__/animus.test.js",
+    "test": "node src/__tests__/animus.test.js && node src/__tests__/readme.test.js && node src/__tests__/persistence.test.js && node src/__tests__/fidelity.test.js",
+    "test:readme": "node src/__tests__/readme.test.js",
+    "test:persistence": "node src/__tests__/persistence.test.js",
+    "test:fidelity": "node src/__tests__/fidelity.test.js",
     "benchmark": "node benchmark/run.js",
     "playground": "npx serve playground"
   },

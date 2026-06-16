@@ -36,10 +36,19 @@ function init() {
     console.log('✓  Created AGENTS.md with Animus section');
   }
 
+  const exampleTarget = path.join(targetDir, 'example.js');
+  if (fs.existsSync(exampleTarget)) {
+    console.log('⚠  animus/example.js already exists — skipping.');
+  } else {
+    fs.copyFileSync(path.join(templatesDir, 'example.js'), exampleTarget);
+    console.log('✓  Created animus/example.js');
+  }
+
   console.log('\nNext steps:');
-  console.log("  1. Edit animus/agent.schema.json — define your agent's state variables");
-  console.log('  2. import { Animus } from \'animus-sdk\' and call agent.compile() before each LLM call');
-  console.log('  3. animus simulate — watch the state engine run on your schema');
+  console.log("  1. Edit animus/agent.schema.json — define your agent's baselines, coupling, and voice");
+  console.log('  2. node animus/example.js — run a turn and persist state (then: animus status)');
+  console.log("  3. import { Animus } from 'animus-sdk' and call agent.compile() before each LLM call");
+  console.log('  4. animus simulate — watch the state engine run on your schema');
 }
 
 function loadSchema() {
@@ -64,20 +73,34 @@ function simulate() {
 
 function status() {
   const { schema } = loadSchema();
-  const memPath = path.join(cwd, 'animus', 'agent.memory.db');
-  console.log(`Agent: ${schema.name || '(unnamed)'}`);
+  const { defaultMemoryPath } = require('../src/index.js');
+  const memPath = defaultMemoryPath(schema, cwd); // .animus/{id}.json — where the SDK writes by default
+  console.log(`Agent: ${schema.name || '(unnamed)'}  (id: ${schema.id || 'default'})`);
   console.log(`Variables: ${(schema.variables || []).join(', ')}`);
   console.log(`λ (homeostasis): ${schema.homeostasis_rate != null ? schema.homeostasis_rate : 0.08}`);
-  if (fs.existsSync(memPath)) {
-    try {
-      const db = JSON.parse(fs.readFileSync(memPath, 'utf8'));
-      console.log(`Memory DB: present — last tick ${new Date(db.lastTick).toLocaleString()}`);
-      console.log('State: ' + (schema.variables || []).map(v =>
-        `${v}=${(db.state[v] != null ? db.state[v] : 0).toFixed(2)}`).join('  '));
-      console.log(`Episodic memories: ${(db.memories || []).length}  ·  events logged: ${(db.eventLog || []).length}`);
-    } catch (e) { console.log('Memory DB: present but unreadable (' + e.message + ')'); }
-  } else {
-    console.log('Memory DB: not yet created (will be on first agent.apply / agent.compile with a memory path)');
+
+  // Look where the SDK writes by default, then fall back to legacy/likely locations.
+  const candidates = [
+    memPath,
+    path.join(cwd, 'animus', 'agent.state.json'),
+    path.join(cwd, 'animus', 'agent.memory.db'),
+  ];
+  const found = candidates.find(p => fs.existsSync(p));
+  if (!found) {
+    console.log(`State: none yet (looked in ${path.relative(cwd, memPath)}).`);
+    console.log('       Run your app (or node animus/example.js) once to create it.');
+    return;
+  }
+  try {
+    const db = JSON.parse(fs.readFileSync(found, 'utf8'));
+    const where = path.relative(cwd, found);
+    console.log(`State file: ${where}${found === memPath ? '' : '  (non-default location)'}`);
+    if (db.lastTick) console.log(`Last tick: ${new Date(db.lastTick).toLocaleString()}`);
+    console.log('State: ' + (schema.variables || Object.keys(db.state || {})).map(v =>
+      `${v}=${(db.state && db.state[v] != null ? db.state[v] : 0).toFixed(2)}`).join('  '));
+    console.log(`Episodic memories: ${(db.memories || []).length}  ·  events logged: ${(db.eventLog || []).length}`);
+  } catch (e) {
+    console.log(`State file: present but unreadable (${e.message})`);
   }
 }
 

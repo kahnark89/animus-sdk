@@ -83,8 +83,8 @@ npx animus init          # scaffold animus/agent.schema.json + AGENTS.md snippet
 import { Animus } from 'animus-sdk';
 
 const agent = new Animus({
-  schema: './animus/agent.schema.json',
-  memory: './animus/agent.memory.db'
+  schema: './animus/agent.schema.json',  // a path (as scaffolded) or a schema object
+  // state persists to .animus/<id>.json by default — pass memoryPath or store to override
 });
 
 // Before your LLM call — inject compiled state
@@ -98,7 +98,8 @@ const messages = [
 const response = await anthropic.messages.create({ messages, model: 'claude-opus-4-8', max_tokens: 1024 });
 
 // After — feed events back into the state engine
-agent.apply(parseEvents(response.content));
+// (raw text is fine; [[event:intensity]] tags are auto-parsed)
+agent.apply(response.content[0].text);
 ```
 
 Works with Anthropic SDK, OpenAI SDK, Google Gemini, Ollama, or any HTTP LLM endpoint. Three lines around the LLM call you already have.
@@ -218,6 +219,63 @@ const messages = [
 | Falls silent offline | Degrades gracefully offline |
 | Tuned by prompting | Tuned by physical parameters |
 | Personality is rented | Personality is owned |
+
+---
+
+## Persistence & deployment
+
+State is persisted automatically. By default it lands in `.animus/<id>.json` (the same place `npx animus status` reads), written **off the request hot path**: a turn's several state changes (compile → apply → gist → remember) coalesce into a single atomic, non-blocking write, and a process-wide exit hook flushes anything still pending on shutdown.
+
+```js
+// Make the current turn durable before you respond (drains the write-behind):
+agent.apply(replyText);
+await agent.flush();
+```
+
+**Save modes** — `new Animus({ schema, save })`:
+
+| `save` | behavior |
+|---|---|
+| `'async'` *(default)* | coalesced write-behind, off the hot path; flushed on exit |
+| `'sync'` | write synchronously on every change (simplest durability) |
+| `false` | never auto-save — you persist via `flush()` or `export()` |
+
+**Bring your own backend.** For a multi-user companion you usually want one agent per user with state in Redis/Postgres instead of local files. Implement the tiny store contract (`load(key)`, `save(key, db)`, optional `saveSync`/`targetKey`) and pass it as `store`. Because external stores load asynchronously, construct with `await Animus.open(...)`:
+
+```js
+const { Animus } = require('animus-sdk');
+const store = new RedisStore(redis);            // see examples/redis-store.js
+
+const schema = generatePersona(seedForUser(userId));
+schema.id = `user:${userId}`;                   // keys the state per user
+
+const agent = await Animus.open({ schema, store });   // async store → open(), not new
+const moodLine = agent.compile();
+// ... your LLM call ...
+agent.apply(replyText);
+await agent.flush();                            // durable before responding
+```
+
+Built-in stores: `FileStore` (default — atomic unique-tmp writes, compact JSON, and a corrupt file is preserved as `<file>.corrupt-<ts>` rather than discarded) and `MemoryStore` (ephemeral, for tests). A working Redis adapter and a Postgres sketch are in [`examples/redis-store.js`](examples/redis-store.js).
+
+**Multi-writer safety.** State carries a monotonic `rev`, and stores that implement compare-and-set (`FileStore`, `MemoryStore`, and the Redis/Postgres examples) use **optimistic concurrency**: if two writers hold the same key and one saves, the other's `flush()` detects it instead of silently clobbering. Pick a policy with `onConflict`:
+
+| `onConflict` | on a conflicting flush() |
+|---|---|
+| `'throw'` *(default)* | rejects with `AnimusConflictError` (carries `key`, `expectedRev`, `currentRev`) — you reload and retry |
+| `'reload'` | adopts the remote state and drops the local turn (warns) |
+| `(local, remote) => merged` | your merge runs, then it retries once at the remote revision |
+
+```js
+try {
+  agent.apply(replyText);
+  await agent.flush();
+} catch (e) {
+  if (e instanceof AnimusConflictError) { /* reload this user and retry the turn */ }
+}
+```
+
+For genuine multi-process writers, back state with a store that has atomic CAS (Redis/Postgres) — a plain filesystem has a small read→write window. The simplest path is still one writer per key (route a user to one worker); the `rev` guard is the safety net when that slips.
 
 ---
 

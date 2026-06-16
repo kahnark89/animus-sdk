@@ -25,6 +25,46 @@ const fs     = require('fs');
 const path   = require('path');
 const engine = require('./engine');
 const { generatePersona } = require('./persona');
+const { normalizeSchema, validateSchema } = require('./normalize');
+const { FileStore, MemoryStore, isThenable } = require('./store');
+
+// ─── Write-behind flush registry ──────────────────────────────────────────
+// One process-wide handler flushes any still-dirty instance on exit. This is a
+// single set of listeners (not one per Animus), so a server holding thousands of
+// per-user instances never trips MaxListenersExceededWarning. Instances are only
+// held here while dirty, and drop out the moment they flush — so they still GC.
+
+const _dirtyByTarget = new Map(); // targetKey -> Set<Animus>
+let _exitHooksInstalled = false;
+
+function _registerDirty(inst) {
+  let set = _dirtyByTarget.get(inst._targetKey);
+  if (!set) { set = new Set(); _dirtyByTarget.set(inst._targetKey, set); }
+  set.add(inst);
+}
+function _unregisterDirty(inst) {
+  const set = _dirtyByTarget.get(inst._targetKey);
+  if (set) { set.delete(inst); if (set.size === 0) _dirtyByTarget.delete(inst._targetKey); }
+}
+/** Synchronously flush any dirty instance writing to a given physical target. */
+function _flushTargetSync(targetKey) {
+  const set = _dirtyByTarget.get(targetKey);
+  if (!set) return;
+  for (const inst of [...set]) { try { inst.flushSync(); } catch { /* best effort */ } }
+}
+function _installExitHooks() {
+  if (_exitHooksInstalled) return;
+  _exitHooksInstalled = true;
+  const flushAll = () => {
+    for (const [, set] of _dirtyByTarget) {
+      for (const inst of [...set]) { try { inst.flushSync(); } catch { /* best effort */ } }
+    }
+  };
+  // `exit` is synchronous-only — FileStore.saveSync is synchronous, so this is safe
+  // and covers process.exit(). `beforeExit` additionally covers natural drain.
+  process.on('exit', flushAll);
+  process.on('beforeExit', flushAll);
+}
 
 // ─── Defaults ─────────────────────────────────────────────────────────────
 
@@ -35,46 +75,120 @@ const TOPIC_HALFLIFE_DAYS  = 7;
 const MAX_MEMORIES         = 200;
 const MAX_TOPICS           = 500;
 
+// ─── Conflict signaling ───────────────────────────────────────────────────
+
+/**
+ * Thrown by flush() (default conflict policy) when a CAS-capable store reports
+ * that another writer advanced the same key since this instance loaded it.
+ * Carries the key and revisions so the caller can reload and retry.
+ */
+class AnimusConflictError extends Error {
+  constructor(key, expectedRev, currentRev) {
+    super(`Animus: write conflict on "${key}" (had rev ${expectedRev}, store at ${currentRev == null ? '?' : currentRev}). ` +
+          'Another writer updated this state. Reload and retry, route the key to a single writer, or set onConflict: \'reload\'.');
+    this.name = 'AnimusConflictError';
+    this.key = key;
+    this.expectedRev = expectedRev;
+    this.currentRev = currentRev;
+  }
+}
+
 // ─── Animus class ─────────────────────────────────────────────────────────
 
 class Animus {
 
   /**
    * @param {object} opts
-   * @param {object}   opts.schema        AnimusSchema (use generatePersona(seed) to build)
-   * @param {string}   [opts.memoryPath]  Path to JSON state file. Defaults to .animus/{characterId}.json
-   * @param {boolean}  [opts.infer]       Enable event inference fallback (default false)
-   * @param {boolean}  [opts.secondOrder] Override schema: force second-order dynamics on/off
+   * @param {object|string} opts.schema   AnimusSchema object, or a path to a JSON schema file.
+   * @param {number}  [opts.seed]         Generate the schema from a seed instead of passing one.
+   * @param {string}  [opts.memoryPath]   Path to JSON state file. Defaults to .animus/{id}.json.
+   * @param {string}  [opts.memory]       Alias for memoryPath.
+   * @param {object}  [opts.store]        Custom persistence store (see store.js). Overrides memoryPath.
+   *                                      If the store loads asynchronously, use `await Animus.open(opts)`.
+   * @param {('async'|'sync'|false)} [opts.save]  Persistence mode (default 'async'):
+   *                                      'async' = coalesced write-behind (off the hot path);
+   *                                      'sync'  = write synchronously on every change;
+   *                                      false   = never auto-save (you call flush()/export()).
+   * @param {boolean} [opts.pretty]       Pretty-print the state file (default false / compact).
+   * @param {boolean} [opts.infer]        Enable event inference fallback (default false).
+   * @param {boolean} [opts.secondOrder]  Force second-order dynamics on/off; overrides schema.
    */
   constructor(opts = {}) {
-    if (!opts.schema) throw new Error('Animus: opts.schema is required. Use Animus.create(seed) for auto-setup.');
+    const r = opts.__resolved || Animus._resolve(opts);
 
-    this.schema = JSON.parse(JSON.stringify(opts.schema)); // deep clone — never mutate caller's schema
-    this.infer  = opts.infer ?? false;
+    this.schema     = r.schema;
+    this.infer      = r.infer;
+    this.storeKey   = r.storeKey;
+    this.memoryPath = r.memoryPath;   // retained for back-compat / tooling (default FileStore)
+    this.store      = r.store;
+    this.saveMode   = r.saveMode;
 
-    // Override second-order from opts if specified
-    if (opts.secondOrder === true  && !this.schema.second_order) {
-      this.schema.second_order = { natural_freq: 0.08, damping_ratio: 0.90 };
+    this._targetKey  = (this.store.targetKey ? this.store.targetKey(this.storeKey) : ('store:' + this.storeKey));
+    this._dirty      = false;
+    this._flushTimer = null;
+    this._conflictWarned = false;
+    this._closed     = false;
+
+    _installExitHooks();
+
+    // If a sibling instance is writing the same physical target and is still
+    // dirty (write-behind in flight), flush it now so our load reads fresh state.
+    _flushTargetSync(this._targetKey);
+
+    // Load existing state.
+    let initial;
+    if (opts._initialDb !== undefined) {
+      initial = opts._initialDb;               // provided by Animus.open() (already awaited)
+    } else {
+      const loaded = this.store.load(this.storeKey);
+      if (isThenable(loaded)) {
+        throw new Error('Animus: this store loads asynchronously — use `await Animus.open({ store, schema })` instead of `new Animus(...)`.');
+      }
+      initial = loaded;
     }
-    if (opts.secondOrder === false) {
-      delete this.schema.second_order;
-    }
-
-    // Memory path
-    const charId = this.schema.id || 'default';
-    this.memoryPath = opts.memoryPath
-      || path.join(process.cwd(), '.animus', `${charId}.json`);
-
-    // Ensure directory exists
-    const dir = path.dirname(this.memoryPath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    // Load or initialize db
-    this.db = this._loadDb();
+    this.db = initial || this._freshDb();
+    if (this.db.rev == null) this.db.rev = 0;
+    this._rev = this.db.rev;                 // last revision this instance has seen
+    this._conflictPolicy = r.conflictPolicy; // 'throw' | 'reload' | (local, remote) => merged
     this._applyBaselineShifts();
 
     // Social coupling registry: Map<animusInstance, strength>
     this._peers = [];
+  }
+
+  /**
+   * Resolve constructor options into a concrete config (schema normalized +
+   * validated once, store + key + save mode chosen). Shared by the constructor
+   * and Animus.open() so resolution — and its warnings — happen exactly once.
+   * @private
+   */
+  static _resolve(opts = {}) {
+    let schema = opts.schema;
+    if (schema == null && typeof opts.seed === 'number') schema = generatePersona(opts.seed);
+    if (typeof schema === 'string') schema = JSON.parse(fs.readFileSync(schema, 'utf8'));
+    if (!schema) {
+      throw new Error('Animus: provide opts.schema (object or path) or opts.seed. Use Animus.create(seed) for auto-setup.');
+    }
+
+    schema = normalizeSchema(schema);
+    validateSchema(schema);
+
+    if (opts.secondOrder === true && !schema.second_order) {
+      schema.second_order = { natural_freq: 0.08, damping_ratio: 0.90 };
+    }
+    if (opts.secondOrder === false) delete schema.second_order;
+
+    const storeKey   = schema.id || 'default';
+    const memoryPath = (opts.memoryPath ?? opts.memory)
+      || path.join(process.cwd(), '.animus', `${storeKey}.json`);
+    const store    = opts.store || new FileStore({ path: memoryPath, pretty: !!opts.pretty });
+    const saveMode = (opts.save === undefined) ? 'async' : opts.save;
+    const conflictPolicy = (opts.onConflict === undefined) ? 'throw' : opts.onConflict;
+    if (conflictPolicy !== 'throw' && conflictPolicy !== 'reload' && typeof conflictPolicy !== 'function') {
+      throw new Error("Animus: onConflict must be 'throw', 'reload', or a (local, remote) => mergedDb function.");
+    }
+
+    return { schema, infer: opts.infer ?? false, storeKey, memoryPath, store, saveMode, conflictPolicy };
   }
 
   // ─── Static factory — two-line cold start ──────────────────────────────
@@ -82,9 +196,10 @@ class Animus {
   /**
    * Animus.create(seed, opts?)
    * The one-liner entry point. Generates a persona from seed, loads state, ready.
+   * Synchronous — works with the default FileStore and any synchronous store.
    *
    * @example
-   *   const animus = await Animus.create(42);
+   *   const animus = Animus.create(42);
    *   const mood   = animus.compile();
    *
    * @param {number} seed     32-bit integer — uniquely identifies the character
@@ -95,6 +210,24 @@ class Animus {
     if (typeof seed !== 'number') throw new Error('Animus.create(seed): seed must be a number');
     const schema = generatePersona(seed);
     return new Animus({ schema, ...opts });
+  }
+
+  /**
+   * Animus.open(opts)
+   * Async entry point for stores whose load() returns a Promise (Redis, Postgres, …).
+   * Awaits the initial state load, then constructs. Also accepts `seed` instead of `schema`.
+   *
+   * @example
+   *   const agent = await Animus.open({ schema, store: myRedisStore });
+   *   const agent = await Animus.open({ seed: 42, store: myRedisStore });
+   *
+   * @param {object} opts  Same options as the constructor.
+   * @returns {Promise<Animus>}
+   */
+  static async open(opts = {}) {
+    const r = Animus._resolve(opts);
+    const loaded = await Promise.resolve(r.store.load(r.storeKey));
+    return new Animus({ ...opts, __resolved: r, _initialDb: loaded == null ? null : loaded });
   }
 
   // ─── Core lifecycle ────────────────────────────────────────────────────
@@ -110,9 +243,18 @@ class Animus {
     this._tick(peers);
     const mem = this.topMemories(3);
     const prevState = this.db.prevState || null;
-    const line = engine.compile(this.db.state, this.schema, Date.now(), prevState, mem);
+
+    // Anti-repetition: avoid re-emitting a line we used in the last few turns.
+    if (!this.db.recentLines) this.db.recentLines = [];
+    const line = engine.compile(
+      this.db.state, this.schema, Date.now(), prevState, mem,
+      { recent: this.db.recentLines }
+    );
+    this.db.recentLines.push(line);
+    if (this.db.recentLines.length > 6) this.db.recentLines.shift();
+
     this.db.prevState = Object.assign({}, this.db.state);
-    this._save();
+    this._markDirty();
     return line;
   }
 
@@ -125,7 +267,8 @@ class Animus {
   apply(events, opts = {}) {
     let evArr;
     if (typeof events === 'string') {
-      evArr = engine.parseEvents(events);
+      const extra = Object.keys(this.schema.events || {});
+      evArr = engine.parseEvents(events, extra);
       if (evArr.length === 0 && (this.infer || opts.inferFallback)) {
         evArr = engine.inferEvents(events);
       }
@@ -137,7 +280,7 @@ class Animus {
     const kicks = engine.eventsToKicks(evArr, this.schema);
     this._applyKicks(kicks);
     this._logEvents(evArr);
-    this._save();
+    this._markDirty();
     return this;
   }
 
@@ -147,7 +290,8 @@ class Animus {
    * @returns {object[]}
    */
   parseEvents(text) {
-    const tags = engine.parseEvents(text);
+    const extra = Object.keys(this.schema.events || {});
+    const tags = engine.parseEvents(text, extra);
     if (tags.length === 0 && this.infer) return engine.inferEvents(text);
     return tags;
   }
@@ -175,7 +319,7 @@ class Animus {
         .slice(0, MAX_MEMORIES)
         .map(({ w, ...rest }) => rest);
     }
-    this._save();
+    this._markDirty();
     return this;
   }
 
@@ -202,7 +346,7 @@ class Animus {
       const keep = new Set(scored.slice(0, MAX_TOPICS).map(([k]) => k));
       for (const k of keys) if (!keep.has(k)) delete this.db.topicFreq[k];
     }
-    this._save();
+    this._markDirty();
     return this;
   }
 
@@ -325,21 +469,111 @@ class Animus {
   /** Import previously exported state. */
   import(exported) {
     this.db = exported.db;
+    if (this.db.rev == null) this.db.rev = 0;
+    this._rev = this.db.rev;   // adopt the imported revision as our baseline
     this._applyBaselineShifts();
-    this._save();
+    this._markDirty();
+    return this;
+  }
+
+  // ─── Persistence control ──────────────────────────────────────────────
+
+  /**
+   * Persist now and resolve when the write completes.
+   * In 'async' mode this drains the pending write-behind; safe to await at
+   * request boundaries or before shutdown. No-op if nothing changed.
+   *
+   * If the store supports compare-and-set (FileStore/MemoryStore do), this uses
+   * optimistic concurrency: a monotonic `rev` guards against a second writer
+   * silently clobbering this key. On conflict the configured onConflict policy
+   * runs — by default an AnimusConflictError is thrown so the caller can react.
+   * @returns {Promise<void>}
+   */
+  flush() {
+    if (this._flushTimer) { clearImmediate(this._flushTimer); this._flushTimer = null; }
+    if (!this._dirty) return Promise.resolve();
+
+    if (typeof this.store.cas === 'function') return this._casFlush(0);
+
+    // No CAS on this store → last-write-wins (still bumps rev for observers).
+    this._dirty = false;
+    this.db.rev = (this._rev || 0) + 1;
+    let r;
+    try { r = this.store.save(this.storeKey, this.db); }
+    catch (e) { this._dirty = true; return Promise.reject(e); }
+    return Promise.resolve(r)
+      .then(() => { this._rev = this.db.rev; this._conflictWarned = false; _unregisterDirty(this); })
+      .catch((e) => { this._dirty = true; _registerDirty(this); throw e; });
+  }
+
+  /** @private optimistic-concurrency write with one optional merge-retry. */
+  _casFlush(retries) {
+    const expected = this._rev || 0;
+    const next = expected + 1;
+    this.db.rev = next;
+    this._dirty = false;
+    return Promise.resolve(this.store.cas(this.storeKey, this.db, expected)).then((res) => {
+      if (res && res.ok) { this._rev = next; this._conflictWarned = false; _unregisterDirty(this); return; }
+      this.db.rev = expected;                 // undo the optimistic bump
+      return this._resolveConflict(res ? res.db : null, retries);
+    }, (e) => { this._dirty = true; _registerDirty(this); throw e; });
+  }
+
+  /** @private apply the conflict policy. */
+  _resolveConflict(remote, retries) {
+    const policy = this._conflictPolicy;
+
+    if (policy === 'reload') {
+      if (remote) { this.db = remote; this._rev = remote.rev || 0; this._applyBaselineShifts(); }
+      this._dirty = false; _unregisterDirty(this);
+      if (!process.env.ANIMUS_SILENT) {
+        console.warn(`[animus] write conflict on "${this.storeKey}" — reloaded remote state; the local turn was dropped.`);
+      }
+      return;
+    }
+
+    if (typeof policy === 'function' && retries < 1 && remote) {
+      const merged = policy(this.db, remote);  // (local, remote) => mergedDb
+      this.db = merged;
+      this._rev = remote.rev || 0;
+      this._applyBaselineShifts();
+      this._dirty = true;
+      return this._casFlush(retries + 1);      // retry once at the remote revision
+    }
+
+    this._dirty = true; _registerDirty(this);
+    throw new AnimusConflictError(this.storeKey, this._rev, remote ? (remote.rev || 0) : null);
+  }
+
+  /**
+   * Persist synchronously, best-effort. Used by the exit hooks and `save:'sync'`.
+   * This path is last-write-wins (no CAS) — it exists to avoid losing unflushed
+   * state at process exit. For optimistic-concurrency guarantees, await flush().
+   * @returns {this}
+   */
+  flushSync() {
+    if (this._flushTimer) { clearImmediate(this._flushTimer); this._flushTimer = null; }
+    if (!this._dirty) return this;
+    this._dirty = false;
+    this.db.rev = (this._rev || 0) + 1;
+    try {
+      if (typeof this.store.saveSync === 'function') this.store.saveSync(this.storeKey, this.db);
+      else this.store.save(this.storeKey, this.db);
+      this._rev = this.db.rev;
+    } catch (e) { this._dirty = true; throw e; }
+    _unregisterDirty(this);
+    return this;
+  }
+
+  /** Flush any pending write and stop auto-saving. Call when discarding an instance. */
+  close() {
+    try { this.flushSync(); } catch { /* best effort */ }
+    this._closed = true;
+    _unregisterDirty(this);
     return this;
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────
-
-  _loadDb() {
-    if (fs.existsSync(this.memoryPath)) {
-      try {
-        return JSON.parse(fs.readFileSync(this.memoryPath, 'utf8'));
-      } catch { /* corrupt file — start fresh */ }
-    }
-    return this._freshDb();
-  }
 
   _freshDb() {
     const state = {};
@@ -362,13 +596,49 @@ class Animus {
       growthApplied: {},
       baselineShifts: {},
       prevState: null,
+      rev: 0,
     };
   }
 
-  _save() {
-    const tmp = this.memoryPath + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(this.db, null, 2), 'utf8');
-    fs.renameSync(tmp, this.memoryPath);
+  /**
+   * Mark state dirty and persist according to saveMode.
+   *   'sync'  → write through immediately (synchronous).
+   *   'async' → coalesce: schedule a single write at the end of this tick, so a
+   *             turn's several mutations collapse into one write off the hot path.
+   *   false   → buffer only; caller persists via flush()/export().
+   */
+  _markDirty() {
+    if (this._closed) return;
+    this._dirty = true;
+
+    if (this.saveMode === false) return;
+
+    if (this.saveMode === 'sync') {
+      try { this.flushSync(); }
+      catch (e) { if (!process.env.ANIMUS_SILENT) console.warn('[animus] save failed: ' + e.message); }
+      return;
+    }
+
+    // 'async' (default): coalesced write-behind
+    _registerDirty(this);
+    if (!this._flushTimer) {
+      this._flushTimer = setImmediate(() => { this._flushTimer = null; this._flushBackground(); });
+    }
+  }
+
+  _flushBackground() {
+    this.flush().catch((e) => {
+      if (process.env.ANIMUS_SILENT) return;
+      if (e && e.name === 'AnimusConflictError') {
+        if (!this._conflictWarned) {
+          console.warn(`[animus] background write conflict on "${this.storeKey}" — holding local changes; ` +
+                       'call await flush() to resolve per your onConflict policy.');
+          this._conflictWarned = true;
+        }
+        return; // stays dirty; next explicit flush() (or markDirty) re-attempts
+      }
+      console.warn('[animus] background save failed: ' + e.message);
+    });
   }
 
   _applyBaselineShifts() {
@@ -529,4 +799,15 @@ class Animus {
   }
 }
 
-module.exports = { Animus };
+/**
+ * The default on-disk state path for a given schema (or characterId), matching
+ * what the constructor uses when no memoryPath/store is supplied. Shared with the
+ * CLI so `animus status` looks exactly where the SDK writes.
+ */
+function defaultMemoryPath(schemaOrId, cwd = process.cwd()) {
+  const id = (schemaOrId && typeof schemaOrId === 'object') ? (schemaOrId.id || 'default')
+           : (schemaOrId || 'default');
+  return path.join(cwd, '.animus', `${id}.json`);
+}
+
+module.exports = { Animus, AnimusConflictError, FileStore, MemoryStore, normalizeSchema, validateSchema, defaultMemoryPath };
