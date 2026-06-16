@@ -54,6 +54,7 @@
    *   rejection  → OCC shame/reproach-self;         PANAS: ashamed
    *   boredom    → PAD low-arousal, neutral valence; PANAS: sluggish
    *   frustration→ OCC displeasure;                 PANAS: jittery (negative)
+   *   confusion  → OCC cognitive disconfirmation;   reduces interest/orientation
    *   surprise   → OCC surprise (neutral valence);  high arousal
    *   challenge  → goal-directed tension; PANAS: determined+strong
    *   absence    → low-intensity prolonged social loss (PAD social cost)
@@ -71,6 +72,7 @@
     rejection:   { affection: -0.22, mood: -0.15, energy: -0.08 },
     boredom:     { curiosity: -0.25, energy: -0.12, mood: -0.08 },
     frustration: { mood: -0.16, focus: -0.18, curiosity: -0.10 },
+    confusion:   { curiosity: -0.15, mood: -0.06, focus: -0.10 },
     surprise:    { curiosity: +0.20, energy: +0.10 },
     challenge:   { focus: +0.18, curiosity: +0.12, energy: -0.06 },
     absence:     { mood: -0.06, affection: -0.08 },
@@ -92,6 +94,18 @@
       h = (Math.imul(h ^ bits, 0x01000193) >>> 0);
     }
     return (h >>> 0) / 0x100000000;
+  }
+
+  /**
+   * Standard normal sample N(0,1) via Box–Muller. Multiply by σ for N(0,σ²).
+   * Used for the OU noise increment and Brownian set-point drift so their
+   * `magnitude` / `rate_per_day` knobs are honest standard deviations.
+   */
+  function gaussian() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random(); // avoid log(0)
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   }
 
   // ─── Circadian rhythm ─────────────────────────────────────────────────────
@@ -141,7 +155,7 @@
     const next = {};
     const { magnitude: σ, autocorrelation: ρ } = schema.noise;
     for (const v of VARS) {
-      const eps = (Math.random() * 2 - 1) * σ * Math.SQRT2;
+      const eps = gaussian() * σ;           // N(0, σ²) — magnitude is a true std-dev
       let n = ρ * (noiseState[v] || 0) + eps;
       const cap = 3 * σ;
       next[v] = n > cap ? cap : n < -cap ? -cap : n;
@@ -310,8 +324,8 @@
     const updated = Object.assign({}, baselineShifts);
     for (const v of VARS) {
       const current = updated[v] || 0;
-      // Brownian step scaled by sqrt(elapsed) for proper diffusion scaling
-      const step = (Math.random() * 2 - 1) * cfg.rate_per_day * Math.sqrt(elapsedDays);
+      // Brownian step scaled by sqrt(elapsed): N(0, (rate²·elapsedDays)) per diffusion
+      const step = gaussian() * cfg.rate_per_day * Math.sqrt(elapsedDays);
       let next = current + step;
       if (next > cfg.max) next = cfg.max;
       if (next < -cfg.max) next = -cfg.max;
@@ -363,8 +377,10 @@
   function eventsToKicks(events, schema) {
     const merged = {};
     const sens = schema.event_sensitivity || {};
+    // Custom event types declared in schema.events extend (and may override) the built-ins.
+    const table = schema.events ? Object.assign({}, KICK_TABLE, schema.events) : KICK_TABLE;
     for (const e of events) {
-      const base = KICK_TABLE[e.type];
+      const base = table[e.type];
       if (!base) continue;
       const I = (e.intensity ?? 1) * (sens[e.type] ?? 1);
       for (const [v, mag] of Object.entries(base)) {
@@ -376,15 +392,21 @@
 
   /**
    * Extract [[event:intensity]] tags from LLM response text.
-   * Zero-argument: only fires for known event types in KICK_TABLE.
+   * Only fires for known event types — built-ins, plus any names passed in
+   * `extraTypes` (the keys of schema.events). Raw text can never invent a
+   * state change. Calling with no second argument preserves built-in-only behavior.
    * Returns [{ type, intensity }].
    */
-  function parseEvents(text) {
+  function parseEvents(text, extraTypes) {
     const re = /\[\[(\w+)(?::([0-9.]+))?\]\]/g;
     const events = [];
+    const known = extraTypes && extraTypes.length
+      ? new Set(Object.keys(KICK_TABLE).concat(extraTypes))
+      : null;
     let m;
     while ((m = re.exec(text)) !== null) {
-      if (KICK_TABLE[m[1]]) {
+      const ok = known ? known.has(m[1]) : !!KICK_TABLE[m[1]];
+      if (ok) {
         events.push({ type: m[1], intensity: m[2] ? parseFloat(m[2]) : 1 });
       }
     }
@@ -449,8 +471,15 @@
    *
    * Phrase selection is deterministic: stateHash(state) indexes into the band.
    * Same state → same phrase every time; stable for tests and reproducible voice.
+   *
+   * Anti-repetition (opt-in): pass opts.recent = [recent lines]. If the
+   * deterministic line matches one of them and a band offers alternatives, the
+   * hash is nudged (golden-ratio) and phrases re-picked so the voice doesn't loop.
+   * With no opts.recent the output is byte-identical to the deterministic form.
    */
-  function compile(state, schema, nowMs, prevState, memories) {
+  function compile(state, schema, nowMs, prevState, memories, opts) {
+    opts = opts || {};
+    const recent = (opts.recent && opts.recent.length) ? opts.recent : null;
     const bands = (schema.compiler && schema.compiler.bands) ? schema.compiler.bands : DEFAULT_BANDS;
 
     const eff = {};
@@ -463,23 +492,13 @@
     const notable = scored.filter(s => s.absDev >= 0.08).slice(0, 3);
     if (notable.length === 0) notable.push(scored[0]);
 
-    const hash = stateHash(state);
-    const phrases = notable.map(s => {
-      const b = band5(state[s.v]);
-      const pool = (bands[s.v] && bands[s.v][b]) ? bands[s.v][b] : DEFAULT_BANDS[s.v][b];
-      return pool[Math.floor(hash * pool.length) % pool.length];
-    });
-
-    let line = phrases.join('; ') + '.';
-
-    // Trend clause
+    // Suffix (trend + circadian + memory) is independent of phrase choice — build once.
+    let suffix = '';
     if (prevState) {
       const delta = state[notable[0].v] - prevState[notable[0].v];
-      if (delta > 0.03) line += ' Lifting.';
-      else if (delta < -0.03) line += ' Still sliding.';
+      if (delta > 0.03) suffix += ' Lifting.';
+      else if (delta < -0.03) suffix += ' Still sliding.';
     }
-
-    // Circadian time context
     if (schema.circadian) {
       const cf = circadianFactor(nowMs, schema.circadian);
       const h = new Date(nowMs).getHours();
@@ -490,12 +509,27 @@
       else if (h >= 16 && h < 20) tc = "It's late afternoon — winding down.";
       else if (h >= 20 && h < 23) tc = "It's evening, a quieter time.";
       else                         tc = "It's the middle of the night, a low-energy stretch.";
-      line += ' ' + tc;
+      suffix += ' ' + tc;
+    }
+    const injectMem = !(schema.compiler && schema.compiler.memory_injection === false);
+    if (injectMem && memories && memories.length > 0) {
+      suffix += ` You've been thinking about ${memories.slice(0, 3).join(', ')} lately.`;
     }
 
-    // Memory gist
-    if (memories && memories.length > 0) {
-      line += ` You've been thinking about ${memories.slice(0, 3).join(', ')} lately.`;
+    const baseHash = stateHash(state);
+    const PHI = 0.6180339887498949; // golden-ratio increment spreads salted picks evenly
+    const maxAttempts = recent ? 5 : 1;
+
+    let line = '';
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const hash = attempt === 0 ? baseHash : (baseHash + PHI * attempt) % 1;
+      const phrases = notable.map(s => {
+        const b = band5(state[s.v]);
+        const pool = (bands[s.v] && bands[s.v][b]) ? bands[s.v][b] : DEFAULT_BANDS[s.v][b];
+        return pool[Math.floor(hash * pool.length) % pool.length];
+      });
+      line = phrases.join('; ') + '.' + suffix;
+      if (!recent || recent.indexOf(line) === -1) break;
     }
 
     return line;

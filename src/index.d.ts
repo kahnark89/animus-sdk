@@ -60,10 +60,53 @@ export interface AnimusEvent {
   intensity?: number;
 }
 
+export interface AnimusStore {
+  /** Load persisted db for a key. May be sync or async. Return null if absent. */
+  load(key: string): object | null | Promise<object | null>;
+  /** Persist db for a key. May be sync or async; callers do not block on it. */
+  save(key: string, db: object): void | Promise<void>;
+  /** Optional synchronous persist used for crash-safe exit flushing. */
+  saveSync?(key: string, db: object): void;
+  /**
+   * Optional compare-and-set for multi-writer safety: write db only if the stored
+   * record's `rev` equals expectedRev. Return { ok:true, rev } on success or
+   * { ok:false, db } with the current winner on conflict. Enables optimistic
+   * concurrency; without it, persistence is last-write-wins.
+   */
+  cas?(key: string, db: object, expectedRev: number):
+    { ok: true; rev: number } | { ok: false; db: object | null }
+    | Promise<{ ok: true; rev: number } | { ok: false; db: object | null }>;
+  /** Optional physical-target identifier so co-writing instances can coordinate. */
+  targetKey?(key: string): string;
+}
+
 export interface AnimusOptions {
-  schema: AnimusSchema;
+  /** A schema object, or a filesystem path to a JSON schema file. */
+  schema?: AnimusSchema | string;
+  /** Generate the schema from a seed instead of supplying one. */
+  seed?: number;
   /** Path to JSON state file. Defaults to .animus/{schema.id}.json */
   memoryPath?: string;
+  /** Alias for memoryPath. */
+  memory?: string;
+  /** Custom persistence store. Overrides memoryPath. Async stores require Animus.open(). */
+  store?: AnimusStore;
+  /**
+   * Persistence mode (default 'async'):
+   *  'async' — coalesced write-behind, off the request hot path;
+   *  'sync'  — write synchronously on every change;
+   *  false   — never auto-save (persist via flush()/export()).
+   */
+  save?: 'async' | 'sync' | false;
+  /** Pretty-print the state file (default false / compact). */
+  pretty?: boolean;
+  /**
+   * Conflict policy when a CAS-capable store detects a concurrent write (default 'throw'):
+   *  'throw'  — flush() rejects with AnimusConflictError;
+   *  'reload' — adopt the remote winner and drop the local turn (warns);
+   *  (local, remote) => mergedDb — merge and retry once at the remote revision.
+   */
+  onConflict?: 'throw' | 'reload' | ((local: object, remote: object) => object);
   /** Enable zero-config event inference from raw LLM text (default false) */
   infer?: boolean;
   /** Force second-order dynamics on (true) or off (false); overrides schema */
@@ -104,6 +147,7 @@ export interface AnimusPeer {
 export declare class Animus {
   readonly schema: AnimusSchema;
   readonly memoryPath: string;
+  readonly store: AnimusStore;
 
   constructor(opts: AnimusOptions);
 
@@ -112,6 +156,19 @@ export declare class Animus {
    * @example const a = Animus.create(42); const mood = a.compile();
    */
   static create(seed: number, opts?: Partial<Omit<AnimusOptions, 'schema'>>): Animus;
+
+  /**
+   * Async cold start for stores whose load() returns a Promise (Redis, Postgres, …).
+   * @example const a = await Animus.open({ schema, store: myRedisStore });
+   */
+  static open(opts: AnimusOptions): Promise<Animus>;
+
+  /** Persist now; resolves when the write completes (drains write-behind). */
+  flush(): Promise<void>;
+  /** Persist synchronously, best-effort (used by exit hooks and save:'sync'). */
+  flushSync(): this;
+  /** Flush pending writes and stop auto-saving. Call when discarding an instance. */
+  close(): this;
 
   // ─── Core lifecycle ──────────────────────────────────────────────────────
 
@@ -207,13 +264,17 @@ export declare const engine: {
   /** Convert event array to kick magnitudes for runSteps(). */
   eventsToKicks(events: AnimusEvent[], schema: AnimusSchema): Record<string, number>;
 
-  /** Compile state into natural-language mood-line. */
+  /**
+   * Compile state into a natural-language mood-line. Pass opts.recent (recently
+   * emitted lines) to enable anti-repetition; omit it for deterministic output.
+   */
   compile(
     state: Record<string, number>,
     schema: AnimusSchema,
     nowMs: number,
     prevState: Record<string, number> | null,
-    memories: string[]
+    memories: string[],
+    opts?: { recent?: string[] }
   ): string;
 
   /** Bounded Brownian walk on baselines during absence. */
@@ -241,8 +302,8 @@ export declare const engine: {
     nowMs: number
   ): AnimusDiagnostic;
 
-  /** Parse [[event:intensity]] tags from text. */
-  parseEvents(text: string): AnimusEvent[];
+  /** Parse [[event:intensity]] tags from text. Recognizes built-ins plus any names in extraTypes. */
+  parseEvents(text: string, extraTypes?: string[]): AnimusEvent[];
 
   /** Strip event tags from text. */
   stripEventTags(text: string): string;
@@ -260,3 +321,39 @@ export declare const engine: {
 // ─── generatePersona re-export ────────────────────────────────────────────────
 
 export declare function generatePersona(seed: number): AnimusSchema;
+
+// ─── Persistence stores ───────────────────────────────────────────────────────
+
+/** Atomic, concurrency-safe, corruption-preserving JSON-file store (the default). */
+export declare class FileStore implements AnimusStore {
+  constructor(opts: string | { path?: string; dir?: string; pretty?: boolean });
+  load(key: string): object | null;
+  save(key: string, db: object): Promise<void>;
+  saveSync(key: string, db: object): void;
+  targetKey(key: string): string;
+}
+
+/** In-process, ephemeral store. For tests, short-lived workers, or export()-based persistence. */
+export declare class MemoryStore implements AnimusStore {
+  load(key: string): object | null;
+  save(key: string, db: object): void;
+  saveSync(key: string, db: object): void;
+  targetKey(key: string): string;
+}
+
+// ─── Schema + path helpers ────────────────────────────────────────────────────
+
+/** Normalize a hand-authored schema to engine shape (returns a deep copy). */
+export declare function normalizeSchema(schema: AnimusSchema): AnimusSchema;
+/** Validate a schema; throws on structural errors, warns on dead triggers. */
+export declare function validateSchema(schema: AnimusSchema): AnimusSchema;
+/** The default on-disk state path for a schema or characterId (matches the constructor). */
+export declare function defaultMemoryPath(schemaOrId: AnimusSchema | string, cwd?: string): string;
+
+/** Thrown by flush() (default conflict policy) when a concurrent writer advanced the key. */
+export declare class AnimusConflictError extends Error {
+  name: 'AnimusConflictError';
+  key: string;
+  expectedRev: number;
+  currentRev: number | null;
+}
