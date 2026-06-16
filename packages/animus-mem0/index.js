@@ -13,7 +13,7 @@
  *   Animus (affective physics, emotional continuity)
  *
  * Usage:
- *   import { AnimusMemoBridge } from '@animus-sdk/mem0';
+ *   import { AnimusMemoBridge } from '@kahnark89/animus-mem0';
  *   const bridge = new AnimusMemoBridge({ animus, mem0Client, userId: 'user_123' });
  *
  *   // After each exchange:

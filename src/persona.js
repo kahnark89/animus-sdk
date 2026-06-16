@@ -15,7 +15,7 @@
  * PRNG draw order (v1 protocol — NEVER reorder; breaks saved seeds):
  *   [valence, arousal, stability, sociability, drive, voice_pick]
  *
- * @version 2.0.0
+ * @version 2.1.0
  * @license MIT
  */
 ;(function (root, factory) {

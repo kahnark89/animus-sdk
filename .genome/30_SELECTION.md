@@ -1,21 +1,23 @@
 # 30_SELECTION — animus-sdk
 
 > **Protected file.** Do not modify without architect sign-off.
-> This file carries the architect's decision heuristics and the Cortex autonomous action policy.
+> This file carries the architect's decision heuristics and the autonomous action policy.
 
 ---
 
 ## §1 Architect Decision Heuristics
 
-1. **Prefer physical parameters over prompt engineering.** If a personality change can be achieved by adjusting λ, coupling, or baselines in the schema, do that — not a longer system prompt.
-2. **Keep the compiled interface narrow.** Any proposal to add a second output channel (beyond mood-line) to the LLM must clear a high bar. The single-string interface is a feature, not a limitation.
-3. **Offline first, network never.** Any feature requiring network access in the core SDK is rejected by default.
-4. **Tests must cover the update equation precisely.** Changes to `StateEngine.tick()` or `computeEffectiveBaseline()` require deterministic tests with explicit `nowMs` values. Stochastic tests (with live noise) are not sufficient for equation changes.
-5. **Backwards-compatibility at the memory file level.** `isCompatible()` must remain a soft check (re-init, not crash). Never add a hard migration requirement in a patch release.
+1. **Prefer physical parameters over prompt engineering.** If a personality change can be achieved by adjusting λ, coupling, baselines, or noise in the schema, do that — not a longer system prompt.
+2. **Keep the compiled interface narrow.** Any proposal to add a second output channel (beyond the mood-line string) to the LLM must clear a high bar. The single-string interface is a feature, not a limitation.
+3. **Offline first, network never.** Any feature requiring network access in the core SDK (`src/`, `bin/`) is rejected by default.
+4. **Tests must cover the update equation precisely.** Changes to `stepFirst()`, `stepSecond()`, or `runSteps()` require deterministic tests with injected `nowMs`. Stochastic tests (live noise, no seed) are not sufficient for equation changes.
+5. **Backwards-compatibility at the state file level.** Missing fields default gracefully (e.g., `rev` → 0, `baselineShifts` → `{}`). Never add a hard migration requirement in a patch release.
+6. **Idempotency over mutation.** Methods called multiple times (e.g., `_applyBaselineShifts`, `normalizeSchema`) must produce the same result on repeated calls. Prefer recomputing from canonical source over accumulating on existing values.
+7. **One process-global exit handler, never per-instance.** Exit flush must iterate the dirty-instance registry, not install one listener per `Animus` instance.
 
 ---
 
-## §2 Cortex Autonomous Action Policy
+## §2 Autonomous Action Policy
 
 ```
 GENOTYPE concepts:  block if confidence < 0.60; never auto-merge without human sign-off
@@ -25,20 +27,47 @@ Neutral concepts:   auto-merge if confidence > 0.75 and tests pass
 ```
 
 **Key GENOTYPE concepts for this repo:**
-- `StateEngine` / update equation / `clamp01`
-- `Memory` / atomic write / `MemoryFile`
-- `Compiler` / mood-line / band labels
-- `EventSystem` / `BUILTIN_EVENTS` / `[EVENT:...]` parse pattern
-- soul/mouth separation architecture
+- `stepFirst` / `stepSecond` / update equation / `clamp01`
+- `FileStore` / atomic write / state file schema
+- `compile()` / mood-line / band labels / `DEFAULT_BANDS`
+- `eventsToKicks` / `KICK_TABLE` / `[[event]]` parse pattern
+- Soul/mouth separation architecture
+- `_baseBaselines` / idempotency invariant
 
 ---
 
 ## §3 Review Triggers
 
-- Any change to `StateEngine.tick()` or the update equation constants
-- Any change to the `MemoryFile` schema (field names, types)
-- Any change to the `[EVENT:type:intensity]` parse pattern (published interface)
-- Any addition of a runtime dependency to `package.json`
+- Any change to `stepFirst()`, `stepSecond()`, or the update equation constants
+- Any change to the state file schema (`.animus/<id>.json` field names or types)
+- Any change to the `[[event:type:intensity]]` parse pattern (published interface)
+- Any addition of a runtime dependency to `package.json` or any `packages/*/package.json`
 - Any change to `"type"` in `package.json` (must stay CommonJS)
 - Any change to the simulator that introduces a CDN, bundler, or React dependency
 - Any change that allows raw state values to reach an LLM prompt
+- Any change to `_applyBaselineShifts()` — must be accompanied by a regression test
+- Any citation added to `engine.js` or `playground/index.html` — verify the paper exists and is relevant before merging
+
+---
+
+## §4 Engine API Stability Contract (v2.x)
+
+The following engine.js exports are stable public API. Do not remove or rename without a major version bump:
+
+| Export | Signature |
+|--------|-----------|
+| `stepFirst` | `(state, schema, nowMs, kicks, noiseState) → {state, noiseState}` |
+| `stepSecond` | `(state, schema, nowMs, kicks, noiseState, velocity) → {state, noiseState, velocity}` |
+| `runSteps` | `(state, schema, nowMs, steps, kicks, noiseState) → {state, noiseState}` |
+| `compile` | `(state, schema, nowMs, prevState?, memories?, opts?) → string` |
+| `eventsToKicks` | `(events, schema) → Record<Var, number>` |
+| `parseEvents` | `(text, extraTypes?) → {type, intensity}[]` |
+| `inferEvents` | `(text) → {type, intensity}[]` |
+| `driftSetpoints` | `(shifts, cfg, elapsedDays) → shifts` |
+| `diagnose` | `(state, schema) → DiagnosticResult` |
+| `band5` | `(x: number) → 'very_low'|'low'|'mid'|'high'|'very_high'` |
+| `VARS` | `string[]` — always `['mood','energy','curiosity','affection','focus']` |
+| `clamp01` | `(x: number) → number` |
+| `DEFAULT_BANDS` | phrase pool fallback |
+
+The simulator template (`templates/simulator.html`) is the canonical reference consumer of this API.

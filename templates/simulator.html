@@ -58,25 +58,48 @@ const E = window.AnimusEngine;
 const COLORS = {mood:'#e8a33d',energy:'#d96c47',curiosity:'#5fb3a1',affection:'#c97b8e',focus:'#d4c39a'};
 const FALLBACK = ['#e8a33d','#d96c47','#5fb3a1','#c97b8e','#d4c39a','#8fa3c7','#b08fc7'];
 
+// Normalize schema fields the engine requires (mirrors src/normalize.js,
+// inlined here because only engine.js is bundled into the simulator).
+if (SCHEMA.circadian) {
+  if (!SCHEMA.circadian.applies_to) SCHEMA.circadian.applies_to = ['energy'];
+  if (Array.isArray(SCHEMA.circadian.peaks)) {
+    SCHEMA.circadian.peaks = SCHEMA.circadian.peaks.map(p => {
+      if (typeof p === 'number') return p;
+      const m = String(p).match(/^(\d{1,2}):(\d{2})$/);
+      return m ? (+m[1]) + (+m[2]) / 60 : +p;
+    });
+  }
+}
+
+// Built-in event names (mirrors BUILTIN_EVENTS in src/normalize.js).
+const BUILTIN_EVENT_NAMES = [
+  'delight','reunion','praise','discovery','play','comfort','distress',
+  'conflict','fatigue','rejection','boredom','frustration','confusion',
+  'surprise','challenge','absence',
+];
+
+const VARS = E.VARS; // ['mood','energy','curiosity','affection','focus']
+
 let simTime = new Date(); simTime.setSeconds(0,0);
-let state = {}, noiseState = {};
-SCHEMA.variables.forEach(v => state[v] = SCHEMA.baselines[v] ?? 0.5);
-const history = SCHEMA.variables.reduce((h,v)=>(h[v]=[],h),{});
+let state = {}, noiseState = {}, velocity = {};
+VARS.forEach(v => { state[v] = SCHEMA.baselines[v] ?? 0.5; noiseState[v] = 0; velocity[v] = 0; });
+const history = VARS.reduce((h,v)=>(h[v]=[],h),{});
 const HLEN = 420;
 let pendingKicks = null, paused = false;
+const useSecondOrder = !!(SCHEMA.second_order);
 
-const colorOf = v => COLORS[v] || FALLBACK[SCHEMA.variables.indexOf(v) % FALLBACK.length];
+const colorOf = v => COLORS[v] || FALLBACK[VARS.indexOf(v) % FALLBACK.length];
 
 // legend
 const lg = document.getElementById('legend');
-SCHEMA.variables.forEach(v => {
+VARS.forEach(v => {
   const s = document.createElement('span');
   s.innerHTML = `<i class="dot" style="background:${colorOf(v)}"></i><b>${v}</b> <i id="val-${v}"></i>`;
   lg.appendChild(s);
 });
 
 // event buttons: built-ins + schema custom events
-const evNames = Object.keys(Object.assign({}, E.BUILTIN_EVENTS, SCHEMA.events || {}));
+const evNames = [...new Set([...BUILTIN_EVENT_NAMES, ...Object.keys(SCHEMA.events || {})])];
 const eb = document.getElementById('eventbtns');
 evNames.forEach(name => {
   const b = document.createElement('button');
@@ -93,10 +116,19 @@ lam.oninput = () => { SCHEMA.homeostasis_rate = +lam.value; lamval.textContent =
 document.getElementById('pause').onclick = e => { paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; };
 
 function stepOnce(){
-  const r = E.step(state, SCHEMA, {date:simTime, kicks:pendingKicks||{}, noiseState});
-  state = r.state; noiseState = r.noiseState; pendingKicks = null;
-  simTime = new Date(simTime.getTime() + (SCHEMA.step_minutes||1)*60000);
-  SCHEMA.variables.forEach(v => { history[v].push(state[v]); if(history[v].length>HLEN) history[v].shift(); });
+  const nowMs = simTime.getTime();
+  const kicks = pendingKicks || {};
+  pendingKicks = null;
+  let r;
+  if (useSecondOrder) {
+    r = E.stepSecond(state, SCHEMA, nowMs, kicks, noiseState, velocity);
+    velocity = r.velocity;
+  } else {
+    r = E.stepFirst(state, SCHEMA, nowMs, kicks, noiseState);
+  }
+  state = r.state; noiseState = r.noiseState;
+  simTime = new Date(nowMs + (SCHEMA.step_minutes||1)*60000);
+  VARS.forEach(v => { history[v].push(state[v]); if(history[v].length>HLEN) history[v].shift(); });
 }
 
 const cv = document.getElementById('chart'), cx = cv.getContext('2d');
@@ -104,17 +136,17 @@ function draw(){
   cx.clearRect(0,0,cv.width,cv.height);
   cx.strokeStyle = '#3a3128'; cx.lineWidth = 1;
   [0.25,0.5,0.75].forEach(g => { cx.beginPath(); cx.moveTo(0,cv.height*(1-g)); cx.lineTo(cv.width,cv.height*(1-g)); cx.stroke(); });
-  SCHEMA.variables.forEach(v => {
+  VARS.forEach(v => {
     const h = history[v]; if(!h.length) return;
     cx.strokeStyle = colorOf(v); cx.lineWidth = 1.6; cx.beginPath();
     h.forEach((y,i) => { const px = i/(HLEN-1)*cv.width, py = (1-y)*(cv.height-8)+4; i?cx.lineTo(px,py):cx.moveTo(px,py); });
     cx.stroke();
-    document.getElementById('val-'+v).textContent = state[v].toFixed(2) + ' ' + E.band(state[v]);
+    document.getElementById('val-'+v).textContent = state[v].toFixed(2) + ' ' + E.band5(state[v]);
   });
 }
 
 function refresh(){
-  document.getElementById('mltext').textContent = E.compile(state, SCHEMA, {date:simTime});
+  document.getElementById('mltext').textContent = E.compile(state, SCHEMA, simTime.getTime());
   document.getElementById('clock').textContent = 'sim ' + simTime.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 }
 

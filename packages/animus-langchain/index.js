@@ -9,12 +9,12 @@
  *   AnimusMemoryBridge— Bridges animus memory to LangChain memory stores
  *
  * Usage (LangGraph):
- *   import { AnimusNode } from '@animus-sdk/langchain';
+ *   import { AnimusNode } from '@kahnark89/animus-langchain';
  *   const node = AnimusNode.create(42);
  *   graph.addNode('animus', node.asGraphNode());
  *
  * Usage (LCEL chain):
- *   import { AnimusRunnable } from '@animus-sdk/langchain';
+ *   import { AnimusRunnable } from '@kahnark89/animus-langchain';
  *   const chain = AnimusRunnable.from(animus) | chatModel | outputParser;
  *
  * @version 2.0.0

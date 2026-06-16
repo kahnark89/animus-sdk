@@ -9,8 +9,8 @@
  *
  * SECOND-ORDER EXTENSION: optional damped harmonic oscillator providing
  * affective inertia and hysteresis.  Kicks displace position; the oscillator
- * provides the restoring force.  Validated model (Subaharan 2026,
- * arXiv:2601.16087; see also ALMA: Gebhard 2005, WASABI: Becker-Asano 2008).
+ * provides the restoring force.  Architecturally analogous to ALMA (Gebhard 2005)
+ * and WASABI (Becker-Asano 2008).
  *
  * ── Kick magnitudes ──────────────────────────────────────────────────────
  * Grounded in:

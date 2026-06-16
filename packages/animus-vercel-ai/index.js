@@ -9,7 +9,7 @@
  *
  * Usage:
  *   import { wrapLanguageModel } from 'ai';
- *   import { createAnimusMiddleware } from '@animus-sdk/vercel-ai';
+ *   import { createAnimusMiddleware } from '@kahnark89/animus-vercel-ai';
  *
  *   const animus  = Animus.create(42);
  *   const model   = wrapLanguageModel({
