@@ -99,6 +99,16 @@
 
 ---
 
+## [2026-06-17] Phrase corpus expanded to 2,000 (20 per band)
+
+**Decision:** Each of the 100 phrase bands in `src/persona.js` (4 registers × 5 variables × 5 bands) was expanded from 8 phrases to 20 phrases, bringing the total from 800 to 2,000.
+
+**Rationale:** 8 phrases per band caused noticeable repetition in long-running sessions. 20 phrases per band provides enough variety for the deterministic hash-based selection to feel non-repetitive across typical interaction lengths. The `packages/animus-persona` standalone package already targeted 20 phrases/band; `src/persona.js` is now consistent with that design intent.
+
+**Author:** claude/phrase-count-genome-update-8lhfsj
+
+---
+
 ## [2026-06-16] Adapter import names corrected to `@kahnark89/animus-*`
 
 **Decision:** JSDoc `Usage:` examples in `packages/animus-{vercel-ai,langchain,mem0}/index.js` corrected from `@animus-sdk/*` to `@kahnark89/animus-*` to match the actual published package names.

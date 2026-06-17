@@ -55,7 +55,7 @@
 
 ## §5 Phrase corpus size
 
-The actual corpus is **800 phrases** (5 variables × 5 bands × ~8 phrases each), not 2,000 as stated in `ANALYSIS.md`. The `ANALYSIS.md` number assumed 20 phrases/band. `ANALYSIS.md` is not in the npm `files` list and will not publish; update it before the repo is public.
+The corpus is **2,000 phrases** (4 registers × 5 variables × 5 bands × 20 phrases each) in `src/persona.js`.
 
 ---
 
