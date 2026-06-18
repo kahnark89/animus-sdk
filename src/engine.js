@@ -18,7 +18,7 @@
  *   PANAS affect schedule (Watson & Clark 1988, Table 1 item loadings)
  *   PAD space mappings (Mehrabian 1996)
  *
- * @version 2.1.0
+ * @version 2.1.3
  * @license MIT
  */
 ;(function (root, factory) {

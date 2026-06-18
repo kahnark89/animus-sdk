@@ -13,7 +13,7 @@ export interface AnimusSetpointDrift {
 
 export interface AnimusTrigger {
   condition: string;        // "elapsed_days > 1", "energy < 0.20", "delight_count > 50"
-  fire: string | string[];
+  fire: string;             // a single built-in/custom event type; runtime applies exactly one
   intensity?: number;
   cooldown_steps?: number;
 }

@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/badge/npm-animus--sdk-blue)](https://www.npmjs.com/package/animus-sdk)
 
-**[▶ Live simulator — no install needed](https://kahnark89.github.io/animus-sdk)**
+**[▶ Live playground — no install needed](https://kahnark89.github.io/animus-sdk)** · runs the same `engine.js` that ships in Node
 
 > *"You're steady; low-energy, quiet; interested; fond; on task. It's late evening, a low-energy stretch of your day."* — compiled at 2:49 AM from the circadian engine reading the real clock
 
@@ -84,6 +84,7 @@ import { Animus } from 'animus-sdk';
 
 const agent = new Animus({
   schema: './animus/agent.schema.json',  // a path (as scaffolded) or a schema object
+  infer: true,                           // read emotion from raw LLM/user text (see note below)
   // state persists to .animus/<id>.json by default — pass memoryPath or store to override
 });
 
@@ -97,12 +98,22 @@ const messages = [
 // Your existing LLM call — unchanged
 const response = await anthropic.messages.create({ messages, model: 'claude-opus-4-8', max_tokens: 1024 });
 
-// After — feed events back into the state engine
-// (raw text is fine; [[event:intensity]] tags are auto-parsed)
+// After — feed events back into the state engine.
+// With infer:true, plain text moves the state automatically.
+// [[event:intensity]] tags are always parsed, with or without infer.
 agent.apply(response.content[0].text);
 ```
 
 Works with Anthropic SDK, OpenAI SDK, Google Gemini, Ollama, or any HTTP LLM endpoint. Three lines around the LLM call you already have.
+
+> **On `infer`.** It defaults to **`false`** for predictability — by default `apply(text)`
+> only reacts to explicit `[[delight]]` / `[[fatigue:0.6]]` tags, so an agent's state never
+> moves on its own. Set `infer: true` (as above) for zero-config behavior: a keyword model
+> reads sentiment straight from the text. The tradeoff is that inference is keyword-based and
+> context-blind — it will fire on text that *discusses or quotes* emotional words (a pasted sad
+> article reads as distress), can emit several events from one message, and is English-only. For
+> production agents where you want full control over what moves the state, keep it off and emit
+> tags yourself.
 
 ---
 

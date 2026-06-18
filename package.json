@@ -1,6 +1,6 @@
 {
   "name": "animus-sdk",
-  "version": "2.1.0",
+  "version": "2.1.3",
   "description": "Persistent affective state engine for AI characters and LLM agents. Physics-based emotional continuity via homeostasis, Ornstein-Uhlenbeck noise, circadian rhythms, and real elapsed-time simulation.",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -8,12 +8,18 @@
     "animus": "bin/animus.js"
   },
   "scripts": {
-    "test": "node src/__tests__/animus.test.js && node src/__tests__/readme.test.js && node src/__tests__/persistence.test.js && node src/__tests__/fidelity.test.js",
+    "test": "node src/__tests__/animus.test.js && node src/__tests__/readme.test.js && node src/__tests__/persistence.test.js && node src/__tests__/fidelity.test.js && node src/__tests__/simulator.test.js && node src/__tests__/playground.test.js",
     "test:readme": "node src/__tests__/readme.test.js",
     "test:persistence": "node src/__tests__/persistence.test.js",
     "test:fidelity": "node src/__tests__/fidelity.test.js",
+    "test:simulator": "node src/__tests__/simulator.test.js",
+    "test:playground": "node src/__tests__/playground.test.js",
+    "verify": "node scripts/verify.js",
+    "build:playground": "node scripts/build-playground.js",
+    "build": "node scripts/build-playground.js",
+    "prepublishOnly": "npm run build && npm test",
     "benchmark": "node benchmark/run.js",
-    "playground": "npx serve playground"
+    "playground": "npm run build:playground && npx serve playground"
   },
   "keywords": [
     "ai", "llm", "npc", "affective-computing", "emotional-ai",
@@ -43,8 +49,5 @@
   ],
   "engines": {
     "node": ">=18.0.0"
-  },
-  "workspaces": [
-    "packages/*"
-  ]
+  }
 }

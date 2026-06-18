@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>animus-sdk playground — persistent affective state engine</title>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --accent:   #58a6ff;
+    --green:    #3fb950;
+    --yellow:   #d29922;
+    --red:      #f85149;
+    --text:     #e6edf3;
+    --muted:    #8b949e;
+    --purple:   #bc8cff;
+    --orange:   #ffa657;
+    --font:     'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    grid-template-rows: 56px 1fr;
+  }
+
+  /* ── Header ── */
+  header {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+  }
+  header h1 { font-size: 15px; font-weight: 600; color: var(--accent); }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  header .links { display: flex; gap: 16px; }
+  header .links a { color: var(--muted); text-decoration: none; font-size: 12px; }
+  header .links a:hover { color: var(--accent); }
+
+  /* ── Left panel ── */
+  aside {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── Main ── */
+  main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Shared ── */
+  .card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  input[type="number"], input[type="text"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 6px 10px;
+    width: 100%;
+    outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent);
+    border: none;
+    border-radius: 4px;
+    color: #000;
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.85; }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+  button.danger { background: var(--red); }
+  button.positive { background: var(--green); color: #000; }
+  button.neutral { background: var(--yellow); color: #000; }
+
+  /* ── Seed panel ── */
+  .seed-row { display: flex; gap: 8px; align-items: center; }
+  .seed-row input { flex: 1; }
+  .trait-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 8px; }
+  .trait-item { display: flex; flex-direction: column; gap: 2px; }
+  .trait-name { font-size: 10px; color: var(--muted); }
+  .trait-bar-wrap { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .trait-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .trait-val { font-size: 10px; color: var(--muted); text-align: right; }
+
+  /* ── State panel ── */
+  .var-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 48px;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .var-name { color: var(--accent); font-size: 12px; }
+  .bar-wrap { height: 10px; background: var(--border); border-radius: 5px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 5px; transition: width 0.4s ease; position: relative; }
+  .bar-baseline { position: absolute; top: 0; height: 100%; width: 2px; background: rgba(255,255,255,0.3); }
+  .var-val { color: var(--text); font-size: 11px; text-align: right; }
+  .velocity-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+
+  /* ── Mood-line ── */
+  .mood-line {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--purple);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--purple);
+    min-height: 48px;
+    font-style: italic;
+  }
+
+  /* ── Events ── */
+  .event-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .event-btn {
+    font-size: 11px;
+    padding: 5px 8px;
+    text-align: center;
+  }
+
+  /* ── Chart ── */
+  .chart-container {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: hidden;
+  }
+  canvas {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 100%;
+  }
+  .chart-legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ── Log ── */
+  .event-log {
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .event-log .entry { border-bottom: 1px solid var(--border); padding: 2px 0; }
+  .event-log .event-type { color: var(--orange); }
+  .event-log .ts { color: var(--border); font-size: 10px; }
+
+  /* ── Share ── */
+  .share-bar { display: flex; gap: 8px; align-items: center; }
+  .share-bar input { flex: 1; font-size: 11px; color: var(--muted); }
+
+  /* ── Register badge ── */
+  .register-badge {
+    display: inline-block;
+    background: var(--purple);
+    color: #000;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 3px;
+    padding: 2px 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+
+  /* ── Time display ── */
+  .time-info { color: var(--muted); font-size: 11px; }
+  .time-info span { color: var(--yellow); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>animus-sdk <span>/ playground</span></h1>
+  <div class="links">
+    <a href="https://github.com/capps-family-enterprises/animus-sdk" target="_blank">GitHub</a>
+    <a href="https://www.npmjs.com/package/animus-sdk" target="_blank">npm</a>
+    <a href="https://arxiv.org" target="_blank">arXiv</a>
+    <a href="#" id="shareLink">Share URL</a>
+  </div>
+</header>
+
+<!-- LEFT PANEL -->
+<aside>
+
+  <!-- Seed -->
+  <div class="card">
+    <div class="label">Character Seed</div>
+    <div class="seed-row">
+      <input type="number" id="seedInput" value="42" min="0" max="4294967295">
+      <button onclick="loadSeed()">Load</button>
+      <button class="ghost" onclick="randomSeed()" title="Random seed">⟳</button>
+    </div>
+    <div style="margin-top:8px; font-size:10px; color:var(--muted)">
+      4,294,967,296 possible characters
+    </div>
+    <div class="trait-grid" id="traitGrid"></div>
+  </div>
+
+  <!-- Voice register -->
+  <div class="card">
+    <div id="registerBadge" class="register-badge">–</div>
+    <div class="label">Voice Register</div>
+    <div id="registerDesc" style="color:var(--muted); font-size:11px; line-height:1.5"></div>
+  </div>
+
+  <!-- Current state -->
+  <div class="card">
+    <div class="label">Affective State</div>
+    <div id="stateDisplay"></div>
+    <div class="time-info" id="timeInfo"></div>
+  </div>
+
+  <!-- Mood-line -->
+  <div class="card">
+    <div class="label">Mood-line (LLM system prompt injection)</div>
+    <div class="mood-line" id="moodLine">—</div>
+  </div>
+
+  <!-- Events -->
+  <div class="card">
+    <div class="label">Fire Event</div>
+    <div class="event-grid" id="eventGrid"></div>
+  </div>
+
+  <!-- Share -->
+  <div class="card">
+    <div class="label">Share</div>
+    <div class="share-bar">
+      <input type="text" id="shareUrl" readonly>
+      <button class="ghost" onclick="copyShare()">Copy</button>
+    </div>
+    <div style="margin-top:8px">
+      <label style="font-size:11px; color:var(--muted);">
+        <input type="checkbox" id="secondOrder" onchange="toggleSecondOrder()">
+        Second-order dynamics (inertia/hysteresis)
+      </label>
+    </div>
+  </div>
+
+  <!-- Event log -->
+  <div class="card">
+    <div class="label">Event Log</div>
+    <div class="event-log" id="eventLog"></div>
+  </div>
+
+</aside>
+
+<!-- MAIN: chart -->
+<main>
+  <div class="chart-container">
+    <div class="chart-legend" id="legend"></div>
+    <canvas id="chart" height="300"></canvas>
+    <div style="color:var(--muted); font-size:11px;">
+      Live simulation — physics advances in real time. Circadian rhythm modulates energy baseline across the 24-hour window.
+    </div>
+  </div>
+</main>
+
+<!-- Production engine + persona, inlined from src/ at build time.
+     SINGLE SOURCE OF TRUTH: this demo runs the exact same engine.js that ships in Node.
+     GENERATED by scripts/build-playground.js — do not edit index.html directly;
+     edit playground/playground.template.html and run `npm run build:playground`. -->
+<script>/*__ENGINE__*/</script>
+<script>/*__PERSONA__*/</script>
+<script>
+// ─── Shim: expose the production engine/persona under the names the UI calls ───
+// The UI below is unchanged; these thin adapters map its call-shapes onto the
+// real engine API (engine.js: stepFirst/stepSecond/compile; persona.js: generatePersona).
+const __E = window.AnimusEngine, __P = window.AnimusPersona;
+const VARS = __E.VARS;
+const clamp01 = __E.clamp01, band5 = __E.band5, stateHash = __E.stateHash;
+const effectiveBaseline = __E.effectiveBaseline, circadianFactor = __E.circadianFactor;
+const KICK_TABLE = __E.KICK_TABLE;
+function generatePersona(seed){ return __P.generatePersona(seed); }
+function step(state, vel, noise, schema, nowMs, kicks, useSecond){
+  if (useSecond){
+    const r = __E.stepSecond(state, vel, noise, schema, nowMs, kicks || {});
+    return { state: r.state, velocityState: r.velocityState, noiseState: r.noiseState };
+  }
+  const r = __E.stepFirst(state, noise, schema, nowMs, kicks || {});
+  return { state: r.state, velocityState: vel, noiseState: r.noiseState };
+}
+function compileMoodLine(state, schema, nowMs, prevState){ return __E.compile(state, schema, nowMs, prevState); }
+
+const REGISTER_DESCS={
+  direct:'Minimal, Anglo-Saxon words. Economical, unsentimental, clear.',
+  vivid:'Imagery-rich, sensory language. Metaphors drawn from nature, light, and the body.',
+  physiological:'Body-based systems language. Medical, neuroscientific, computational.',
+  social:'Relational, interpersonal. Framed in terms of connection and presence.',
+};
+
+const VAR_COLORS={mood:'#bc8cff',energy:'#58a6ff',curiosity:'#ffa657',affection:'#3fb950',focus:'#d29922'};
+const EVENT_GROUPS=[
+  {label:'+ Positive',class:'positive',events:['delight','reunion','praise','discovery','play','comfort']},
+  {label:'− Negative',class:'danger',events:['distress','conflict','fatigue','rejection','boredom','frustration']},
+  {label:'~ Mixed',class:'neutral',events:['surprise','challenge','absence']},
+];
+
+// ─── Simulation state ──────────────────────────────────────────────────────
+
+let schema=null, simState={}, velocityState={}, noiseState={};
+let history=[]; // [{t, mood, energy, curiosity, affection, focus}]
+let prevState=null;
+let useSecond=false;
+let eventLog=[];
+const MAX_HISTORY=300;
+
+function initState(sc){
+  schema=sc;
+  simState={};noiseState={};velocityState={};
+  for(const v of VARS){simState[v]=sc.baselines[v];noiseState[v]=0;velocityState[v]=0;}
+  history=[];
+  prevState=null;
+}
+
+// ─── Seed loading ──────────────────────────────────────────────────────────
+
+function loadSeed(){
+  const seed=parseInt(document.getElementById('seedInput').value)||42;
+  const sc=generatePersona(seed);
+  initState(sc);
+  renderTraits();
+  renderRegister();
+  renderEvents();
+  updateShareUrl();
+  renderAll();
+}
+
+function randomSeed(){
+  const s=Math.floor(Math.random()*4294967296);
+  document.getElementById('seedInput').value=s;
+  loadSeed();
+}
+
+function toggleSecondOrder(){
+  useSecond=document.getElementById('secondOrder').checked;
+}
+
+// ─── Rendering ────────────────────────────────────────────────────────────
+
+function renderTraits(){
+  const t=schema._traits;
+  const labels={valence:'Valence',arousal:'Arousal',stability:'Stability',sociability:'Sociability',drive:'Drive'};
+  const colors={valence:'#bc8cff',arousal:'#58a6ff',stability:'#3fb950',sociability:'#ffa657',drive:'#d29922'};
+  const g=document.getElementById('traitGrid');
+  g.innerHTML='';
+  for(const[k,label] of Object.entries(labels)){
+    const pct=(t[k]*100).toFixed(0);
+    g.innerHTML+=`<div class="trait-item">
+      <div class="trait-name">${label}</div>
+      <div class="trait-bar-wrap"><div class="trait-bar" style="width:${pct}%;background:${colors[k]}"></div></div>
+      <div class="trait-val">${pct}%</div>
+    </div>`;
+  }
+}
+
+function renderRegister(){
+  const reg=schema.compiler.register;
+  document.getElementById('registerBadge').textContent=reg;
+  document.getElementById('registerDesc').textContent=REGISTER_DESCS[reg];
+}
+
+function renderEvents(){
+  const g=document.getElementById('eventGrid');
+  g.innerHTML='';
+  for(const grp of EVENT_GROUPS){
+    g.innerHTML+=`<div style="grid-column:1/-1; font-size:10px; color:var(--muted); margin-top:4px">${grp.label}</div>`;
+    for(const ev of grp.events){
+      g.innerHTML+=`<button class="event-btn ${grp.class}" onclick="fireEvent('${ev}')">${ev}</button>`;
+    }
+  }
+}
+
+function renderAll(){
+  renderState();
+  renderMoodLine();
+  renderChart();
+  renderShareUrl();
+}
+
+function renderState(){
+  const now=Date.now();
+  const d=document.getElementById('stateDisplay');
+  d.innerHTML='';
+  for(const v of VARS){
+    const val=simState[v];
+    const base=schema.baselines[v];
+    const eff=effectiveBaseline(v,schema,now);
+    const vel=velocityState[v]||0;
+    const pct=Math.round(val*100);
+    const basePct=Math.round(base*100);
+    const color=VAR_COLORS[v];
+    const velDot=Math.abs(vel)>0.002
+      ?`<span class="velocity-dot" style="background:${vel>0?'#3fb950':'#f85149'};opacity:0.8" title="velocity: ${vel.toFixed(4)}"></span>`
+      :'';
+    d.innerHTML+=`<div class="var-row">
+      <div class="var-name">${v}${velDot}</div>
+      <div class="bar-wrap">
+        <div class="bar-fill" style="width:${pct}%;background:${color}"></div>
+        <div class="bar-baseline" style="left:${basePct}%"></div>
+      </div>
+      <div class="var-val">${val.toFixed(3)}</div>
+    </div>`;
+  }
+  const now2=new Date();
+  const cf=circadianFactor(Date.now(),schema.circadian);
+  document.getElementById('timeInfo').innerHTML=
+    `${now2.toLocaleTimeString()} · circadian: <span>${(cf*100).toFixed(1)}%</span>`;
+}
+
+function renderMoodLine(){
+  const now=Date.now();
+  const line=compileMoodLine(simState,schema,now,prevState);
+  document.getElementById('moodLine').textContent=line;
+  prevState={...simState};
+}
+
+function renderShareUrl(){
+  const seed=document.getElementById('seedInput').value||'42';
+  const url=`${location.origin}${location.pathname}?seed=${seed}`;
+  document.getElementById('shareUrl').value=url;
+}
+
+// ─── Chart ────────────────────────────────────────────────────────────────
+
+const canvas=document.getElementById('chart');
+const ctx=canvas.getContext('2d');
+
+function renderChart(){
+  const W=canvas.offsetWidth;const H=canvas.offsetHeight||300;
+  canvas.width=W;canvas.height=H;
+  ctx.clearRect(0,0,W,H);
+
+  if(history.length<2) return;
+
+  const pad={top:16,right:16,bottom:28,left:36};
+  const cw=W-pad.left-pad.right;
+  const ch=H-pad.top-pad.bottom;
+
+  // Grid
+  ctx.strokeStyle='#30363d';ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){
+    const y=pad.top+ch*(1-g/4);
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+cw,y);ctx.stroke();
+    ctx.fillStyle='#8b949e';ctx.font='10px monospace';ctx.textAlign='right';
+    ctx.fillText((g/4).toFixed(2),pad.left-4,y+4);
+  }
+
+  // Lines
+  const n=history.length;
+  for(const v of VARS){
+    ctx.strokeStyle=VAR_COLORS[v];ctx.lineWidth=1.5;ctx.beginPath();
+    history.forEach((pt,i)=>{
+      const x=pad.left+(i/(n-1))*cw;
+      const y=pad.top+ch*(1-pt[v]);
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+
+  // Baseline markers (dashed)
+  for(const v of VARS){
+    const base=schema.baselines[v];
+    const y=pad.top+ch*(1-base);
+    ctx.strokeStyle=VAR_COLORS[v];ctx.lineWidth=0.5;ctx.setLineDash([4,8]);
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+cw,y);ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Legend
+  const leg=document.getElementById('legend');
+  leg.innerHTML=VARS.map(v=>`
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${VAR_COLORS[v]}"></div>
+      ${v}
+    </div>`).join('');
+}
+
+// ─── Event firing ─────────────────────────────────────────────────────────
+
+function fireEvent(type){
+  const kicks={};
+  const base=KICK_TABLE[type]||{};
+  const sens=schema.event_sensitivity||{};
+  const I=(sens[type]||1);
+  for(const[v,mag] of Object.entries(base)) kicks[v]=(kicks[v]||0)+mag*I;
+
+  const r=step(simState,velocityState,noiseState,schema,Date.now(),kicks,useSecond);
+  simState=r.state;velocityState=r.velocityState;noiseState=r.noiseState;
+
+  logEvent(type);
+  renderAll();
+}
+
+function logEvent(type){
+  const now=new Date().toLocaleTimeString();
+  eventLog.unshift({type,ts:now});
+  if(eventLog.length>50) eventLog.pop();
+  const el=document.getElementById('eventLog');
+  el.innerHTML=eventLog.map(e=>`<div class="entry"><span class="ts">${e.ts}</span> → <span class="event-type">${e.type}</span></div>`).join('');
+}
+
+// ─── Share ────────────────────────────────────────────────────────────────
+
+function updateShareUrl(){
+  renderShareUrl();
+}
+
+function copyShare(){
+  navigator.clipboard.writeText(document.getElementById('shareUrl').value).catch(()=>{});
+  const btn=event.target;
+  const orig=btn.textContent;
+  btn.textContent='✓';
+  setTimeout(()=>btn.textContent=orig,1200);
+}
+
+document.getElementById('shareLink').onclick=(e)=>{
+  e.preventDefault();
+  copyShare();
+};
+
+// ─── Read seed from URL ───────────────────────────────────────────────────
+
+(()=>{
+  const p=new URLSearchParams(location.search);
+  const s=p.get('seed');
+  if(s&&!isNaN(parseInt(s))){
+    document.getElementById('seedInput').value=parseInt(s);
+  }
+})();
+
+// ─── Animation loop ───────────────────────────────────────────────────────
+
+let lastPhysics=Date.now();
+const PHYSICS_MS=1000; // advance one sim step per second in playground
+
+function tick(){
+  const now=Date.now();
+  if(schema && now-lastPhysics>=PHYSICS_MS){
+    const r=step(simState,velocityState,noiseState,schema,now,null,useSecond);
+    simState=r.state;velocityState=r.velocityState;noiseState=r.noiseState;
+    history.push({t:now,...simState});
+    if(history.length>MAX_HISTORY) history.shift();
+    lastPhysics=now;
+    renderAll();
+  }
+  requestAnimationFrame(tick);
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────
+
+loadSeed();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

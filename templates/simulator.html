@@ -121,10 +121,13 @@ function stepOnce(){
   pendingKicks = null;
   let r;
   if (useSecondOrder) {
-    r = E.stepSecond(state, SCHEMA, nowMs, kicks, noiseState, velocity);
-    velocity = r.velocity;
+    // engine.js: stepSecond(state, velocityState, noiseState, schema, nowMs, kicks)
+    //            → { state, velocityState, noiseState }
+    r = E.stepSecond(state, velocity, noiseState, SCHEMA, nowMs, kicks);
+    velocity = r.velocityState;
   } else {
-    r = E.stepFirst(state, SCHEMA, nowMs, kicks, noiseState);
+    // engine.js: stepFirst(state, noiseState, schema, nowMs, kicks) → { state, noiseState }
+    r = E.stepFirst(state, noiseState, SCHEMA, nowMs, kicks);
   }
   state = r.state; noiseState = r.noiseState;
   simTime = new Date(nowMs + (SCHEMA.step_minutes||1)*60000);

@@ -56,18 +56,27 @@ The following engine.js exports are stable public API. Do not remove or rename w
 
 | Export | Signature |
 |--------|-----------|
-| `stepFirst` | `(state, schema, nowMs, kicks, noiseState) → {state, noiseState}` |
-| `stepSecond` | `(state, schema, nowMs, kicks, noiseState, velocity) → {state, noiseState, velocity}` |
-| `runSteps` | `(state, schema, nowMs, steps, kicks, noiseState) → {state, noiseState}` |
+| `stepFirst` | `(state, noiseState, schema, nowMs, kicks) → {state, noiseState}` |
+| `stepSecond` | `(state, velocityState, noiseState, schema, nowMs, kicks) → {state, velocityState, noiseState}` |
+| `runSteps` | `(state, velocityState, noiseState, schema, nowMs, steps, kicks) → {state, velocityState, noiseState}` |
 | `compile` | `(state, schema, nowMs, prevState?, memories?, opts?) → string` |
 | `eventsToKicks` | `(events, schema) → Record<Var, number>` |
 | `parseEvents` | `(text, extraTypes?) → {type, intensity}[]` |
 | `inferEvents` | `(text) → {type, intensity}[]` |
-| `driftSetpoints` | `(shifts, cfg, elapsedDays) → shifts` |
-| `diagnose` | `(state, schema) → DiagnosticResult` |
+| `driftSetpoints` | `(baselineShifts, schema, elapsedDays) → baselineShifts` |
+| `diagnose` | `(state, velocityState, noiseState, schema, nowMs) → DiagnosticResult` |
 | `band5` | `(x: number) → 'very_low'|'low'|'mid'|'high'|'very_high'` |
 | `VARS` | `string[]` — always `['mood','energy','curiosity','affection','focus']` |
 | `clamp01` | `(x: number) → number` |
 | `DEFAULT_BANDS` | phrase pool fallback |
 
-The simulator template (`templates/simulator.html`) is the canonical reference consumer of this API.
+> **These signatures are the ground truth taken from `src/engine.js`.** `schema` sits in the
+> middle of the step functions (after the carry-state objects), which is unusual — do not assume
+> a `(state, schema, …)` order. The mismatch between an earlier version of this table and the real
+> engine is what produced the simulator regression (see `40_SHADOW.md` S006/S010). Any edit to this
+> table or to the engine signatures **must** be accompanied by a passing run of
+> `src/__tests__/simulator.test.js`, which executes the generated simulator headlessly and asserts
+> the call order matches. If that test and this table ever disagree, the test wins.
+
+The simulator template (`templates/simulator.html`) is the canonical reference consumer of this API,
+and `src/__tests__/simulator.test.js` enforces that it actually runs against the real engine.

@@ -15,7 +15,7 @@
  *   - Two-line cold-start: Animus.create(seed) → ready
  *   - Framework adapters: toSystemPrompt(), toMiddleware()
  *
- * @version 2.1.0
+ * @version 2.1.3
  * @license MIT
  */
 

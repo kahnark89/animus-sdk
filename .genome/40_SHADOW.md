@@ -92,3 +92,14 @@
 **Ruled out:** The paper could not be verified as real. A fabricated citation in shipping code and a public playground link is a credibility-ending finding at launch. Removed; real analogous references (ALMA: Gebhard 2005, WASABI: Becker-Asano 2008) retained. Policy: any citation added to engine.js or playground must be verified before merge (see `30_SELECTION.md §3`).
 
 **Date:** 2026-06-16
+
+---
+
+## S010 — Writing engine consumers from the SELECTION §4 contract instead of engine.js
+
+**Tried:** Coding `templates/simulator.html`'s `stepFirst`/`stepSecond` calls to the argument order documented in `30_SELECTION.md §4 "Engine API Stability Contract"`.
+
+**Ruled out / fixed:** That table did not match `src/engine.js` — every step-function row had `schema` in the wrong position (`(state, schema, nowMs, …)` vs the real `(state, noiseState, schema, nowMs, kicks)`). Building a consumer from the doc produced a crash identical in severity to the original S006 breakage. Ground truth is `engine.js`, not the contract doc. The contract table was corrected and a headless smoke test (`src/__tests__/simulator.test.js`) now enforces that the canonical consumer actually runs against the real engine, so a stale contract can no longer silently produce a broken simulator.
+
+**Date:** 2026-06-17
+
