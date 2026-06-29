@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animus — 3D affective simulation</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#111;overflow:hidden;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#e9e2d6}
+  #cv{display:block;width:100vw;height:100vh}
+
+  /* ── Overlay panels ── */
+  #ui{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none}
+  .panel{pointer-events:auto;background:rgba(18,14,10,.88);border:1px solid #3a3128;backdrop-filter:blur(6px)}
+
+  /* ── Left panel: selected agent ── */
+  #panel-left{
+    position:absolute;top:16px;left:16px;width:240px;
+    padding:14px;display:flex;flex-direction:column;gap:10px
+  }
+  #agent-name{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#9c917f}
+  #agent-seed{font-size:10px;color:#5a5148;margin-top:2px}
+  .section-label{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#5a5148;margin-bottom:4px}
+
+  .var-row{display:grid;grid-template-columns:72px 1fr 38px;align-items:center;gap:6px;margin-bottom:5px}
+  .var-name{font-size:11px;color:#9c917f}
+  .bar-wrap{height:7px;background:#2a2218;border-radius:3px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:3px;transition:width .35s ease}
+  .var-val{font-size:10px;color:#e9e2d6;text-align:right}
+
+  #mood-line-text{font:italic 12px/1.55 Georgia,serif;color:#e9e2d6;min-height:38px}
+
+  /* ── Event buttons ── */
+  #event-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+  .ev-btn{
+    background:#1e1812;color:#9c917f;border:1px solid #3a3128;
+    padding:5px 4px;font:10px ui-monospace,monospace;cursor:pointer;text-align:center
+  }
+  .ev-btn:hover{border-color:#9c917f;color:#e9e2d6}
+  .ev-pos{border-color:#3a5530}
+  .ev-pos:hover{background:#1a2e18;color:#7fc87a}
+  .ev-neg{border-color:#553030}
+  .ev-neg:hover{background:#2e1818;color:#c87a7a}
+
+  /* ── Right controls ── */
+  #panel-ctrl{
+    position:absolute;top:16px;right:16px;width:196px;
+    padding:12px;display:flex;flex-direction:column;gap:10px
+  }
+  .ctrl-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ctrl-label{font-size:10px;color:#9c917f}
+  input[type=range]{flex:1;accent-color:#e8a33d;height:4px}
+  .ctrl-val{font-size:10px;color:#e9e2d6;min-width:28px;text-align:right}
+
+  /* ── Agent tabs (bottom strip) ── */
+  #agent-strip{
+    position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+    display:flex;gap:6px
+  }
+  .agent-tab{
+    width:36px;height:36px;border-radius:50%;border:2px solid #3a3128;
+    cursor:pointer;pointer-events:auto;transition:border-color .2s;
+    display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:600
+  }
+  .agent-tab:hover,.agent-tab.active{border-color:#e8a33d}
+
+  /* ── Clock ── */
+  #clock{position:absolute;top:16px;left:50%;transform:translateX(-50%);
+    font-size:11px;color:#5a5148;pointer-events:none}
+
+  /* ── Help hint ── */
+  #hint{position:absolute;bottom:16px;right:16px;font-size:10px;color:#3a3128;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="ui">
+  <!-- Left: selected agent state -->
+  <div id="panel-left" class="panel">
+    <div>
+      <div id="agent-name">Agent #1</div>
+      <div id="agent-seed">seed 42</div>
+    </div>
+    <div>
+      <div class="section-label">Affective state</div>
+      <div id="state-bars"></div>
+    </div>
+    <div>
+      <div class="section-label">Mood-line</div>
+      <div id="mood-line-text">—</div>
+    </div>
+    <div>
+      <div class="section-label">Fire event</div>
+      <div id="event-grid"></div>
+    </div>
+  </div>
+
+  <!-- Right: controls -->
+  <div id="panel-ctrl" class="panel">
+    <div class="section-label">Simulation controls</div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">speed</span>
+      <input type="range" id="sl-speed" min="1" max="30" step="1" value="8">
+      <span class="ctrl-val" id="lv-speed">8</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">λ homeostasis</span>
+      <input type="range" id="sl-lam" min="0.01" max="0.30" step="0.01" value="0.08">
+      <span class="ctrl-val" id="lv-lam">0.08</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">agents</span>
+      <input type="range" id="sl-agents" min="2" max="8" step="1" value="5">
+      <span class="ctrl-val" id="lv-agents">5</span>
+    </div>
+    <div class="ctrl-row" style="justify-content:flex-start;gap:10px">
+      <label style="font-size:10px;color:#9c917f;display:flex;gap:6px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="ck-second"> 2nd-order dynamics
+      </label>
+    </div>
+    <div class="ctrl-row" style="justify-content:flex-start;gap:10px">
+      <label style="font-size:10px;color:#9c917f;display:flex;gap:6px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="ck-social" checked> social contagion
+      </label>
+    </div>
+    <div class="ctrl-row" style="margin-top:2px">
+      <button onclick="randomiseSeeds()" style="background:#1e1812;color:#9c917f;border:1px solid #3a3128;padding:5px 10px;font:10px ui-monospace,monospace;cursor:pointer">Shuffle agents</button>
+      <button id="btn-pause" onclick="togglePause()" style="background:#1e1812;color:#9c917f;border:1px solid #3a3128;padding:5px 10px;font:10px ui-monospace,monospace;cursor:pointer">Pause</button>
+    </div>
+  </div>
+
+  <!-- Bottom: agent tabs -->
+  <div id="agent-strip"></div>
+
+  <!-- Clock -->
+  <div id="clock">sim —</div>
+
+  <!-- Hint -->
+  <div id="hint">drag to orbit · scroll to zoom · click avatar to select</div>
+</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script>
+'use strict';
+
+// ── AFFECTIVE ENGINE (self-contained subset) ───────────────────────────────
+
+const VARS = ['mood','energy','curiosity','affection','focus'];
+const VAR_COLORS = {mood:'#e8a33d',energy:'#d96c47',curiosity:'#5fb3a1',affection:'#c97b8e',focus:'#d4c39a'};
+
+const KICK_TABLE = {
+  delight:    {mood:+.22,energy:+.10,curiosity:+.08},
+  reunion:    {mood:+.18,affection:+.25,energy:+.12},
+  praise:     {mood:+.15,affection:+.10,focus:+.08},
+  discovery:  {curiosity:+.28,mood:+.10,energy:+.08},
+  play:       {energy:+.20,mood:+.15,curiosity:+.10},
+  comfort:    {mood:+.12,affection:+.18,energy:+.06},
+  distress:   {mood:-.20,energy:-.10,focus:-.12},
+  conflict:   {mood:-.18,affection:-.12,focus:-.08},
+  fatigue:    {energy:-.28,focus:-.15,curiosity:-.08},
+  rejection:  {affection:-.22,mood:-.15,energy:-.08},
+  boredom:    {curiosity:-.25,energy:-.12,mood:-.08},
+  frustration:{mood:-.16,focus:-.18,curiosity:-.10},
+  confusion:  {curiosity:-.15,mood:-.06,focus:-.10},
+  surprise:   {curiosity:+.20,energy:+.10},
+  challenge:  {focus:+.18,curiosity:+.12,energy:-.06},
+  absence:    {mood:-.06,affection:-.08},
+};
+
+function clamp01(x){return x<0?0:x>1?1:x}
+function lerp(a,b,t){return a+(b-a)*t}
+function band5(x){if(x<.15)return'very_low';if(x<.35)return'low';if(x<.65)return'mid';if(x<.85)return'high';return'very_high'}
+
+function mulberry32(seed){
+  return function(){
+    seed=(seed+0x6d2b79f5)>>>0;
+    let z=seed;
+    z=Math.imul(z^(z>>>15),z|1);
+    z^=z+Math.imul(z^(z>>>7),z|61);
+    return((z^(z>>>14))>>>0)/0x100000000;
+  };
+}
+
+function gaussPair(){ // Box-Muller
+  let u=0,v=0;
+  while(!u)u=Math.random();
+  while(!v)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+
+function circadianFactor(nowMs,circ){
+  const d=new Date(nowMs);
+  const min=d.getHours()*60+d.getMinutes();
+  let best=0;
+  for(const p of circ.peaks){
+    let dist=Math.abs(min-p*60);
+    if(dist>720)dist=1440-dist;
+    const g=Math.exp(-(dist*dist)/(2*(circ.sigma_hours||2)*60*(circ.sigma_hours||2)*60));
+    if(g>best)best=g;
+  }
+  const fl=circ.floor??0.15;
+  return fl+(1-fl)*best;
+}
+
+function effBaseline(v,schema,nowMs){
+  const base=schema.baselines[v];
+  if(schema.circadian&&schema.circadian.applies_to.includes(v)){
+    const f=circadianFactor(nowMs,schema.circadian);
+    return clamp01(lerp(base*.60,base*1.15,f));
+  }
+  return base;
+}
+
+function stepNoise(noiseState,schema){
+  const next={};
+  const{magnitude:σ,autocorrelation:ρ}=schema.noise;
+  for(const v of VARS){
+    let n=ρ*(noiseState[v]||0)+gaussPair()*σ;
+    const cap=3*σ;n=n>cap?cap:n<-cap?-cap:n;
+    next[v]=n;
+  }
+  return next;
+}
+
+function engineStep(state,vel,noise,schema,nowMs,kicks,useSecond){
+  kicks=kicks||{};
+  const nn=stepNoise(noise,schema);
+  const eff={};
+  for(const v of VARS)eff[v]=effBaseline(v,schema,nowMs);
+  const ns={},nv={};
+  const λ=schema.homeostasis_rate;
+  for(const v of VARS){
+    const x=state[v],x0=eff[v];
+    let cpl=0;
+    if(schema.coupling)for(const[src,tgts]of Object.entries(schema.coupling))
+      if(tgts[v]!==undefined)cpl+=tgts[v]*(state[src]-eff[src]);
+    if(useSecond){
+      const so=schema.second_order||{natural_freq:.08,damping_ratio:.90};
+      let v0=vel[v]||0;
+      const displaced=clamp01(x+(kicks[v]||0)+cpl+nn[v]);
+      const acc=-2*so.damping_ratio*so.natural_freq*v0-so.natural_freq*so.natural_freq*(displaced-x0);
+      v0=v0+acc;v0=v0>.08?.08:v0<-.08?-.08:v0;
+      nv[v]=v0;ns[v]=clamp01(displaced+v0);
+    } else {
+      nv[v]=0;ns[v]=clamp01(x+λ*(x0-x)+cpl+(kicks[v]||0)+nn[v]);
+    }
+  }
+  return{state:ns,vel:nv,noise:nn};
+}
+
+function socialInfluenceKicks(selfSchema,peers){
+  const kicks={};for(const v of VARS)kicks[v]=0;
+  for(const p of peers){
+    const s=p.strength??0.04;
+    for(const v of VARS)kicks[v]+=s*(p.state[v]-(p.schema.baselines[v]??0.5));
+  }
+  const soc=selfSchema._traits?.sociability??0.5;
+  const scale=lerp(.3,1.3,soc);
+  for(const v of VARS)kicks[v]*=scale;
+  return kicks;
+}
+
+function eventsToKicks(type,schema){
+  const base=KICK_TABLE[type];if(!base)return{};
+  const sens=schema.event_sensitivity||{};
+  const I=sens[type]??1;
+  const out={};
+  for(const[v,mag]of Object.entries(base))out[v]=mag*I;
+  return out;
+}
+
+function generatePersona(seed){
+  const p=mulberry32(seed);
+  const V=p(),A=p(),S=p(),So=p(),D=p();
+  const λ=lerp(.03,.18,S);
+  const kem=lerp(.02,.10,A);
+  const coupling={energy:{mood:kem,curiosity:lerp(.01,.08,D),focus:lerp(.01,.07,D)}};
+  if(So>.5)coupling.affection={mood:lerp(.01,.06,So)};
+  if(D>.5)coupling.curiosity={focus:lerp(.01,.05,D)};
+  if(S>.6){const cap=Math.min(.04,(λ*λ)/kem*.90);coupling.mood={energy:lerp(.005,cap,S-.6)};}
+  return{
+    seed,_traits:{valence:V,arousal:A,stability:S,sociability:So,drive:D},
+    baselines:{
+      mood:clamp01(lerp(.35,.80,V)),energy:clamp01(lerp(.35,.85,A)),
+      affection:clamp01(lerp(.25,.80,(V+So)/2)),focus:clamp01(lerp(.35,.80,D)),
+      curiosity:clamp01(lerp(.40,.85,(D+V)/2)),
+    },
+    homeostasis_rate:λ,
+    noise:{magnitude:lerp(.008,.045,1-S),autocorrelation:lerp(.40,.88,1-S)},
+    circadian:{applies_to:['energy'],peaks:[Math.round(lerp(6,10,A)),Math.round(lerp(13,16,So))],sigma_hours:lerp(1.5,3,So),floor:lerp(.05,.40,A)},
+    second_order:{natural_freq:lerp(.04,.12,S),damping_ratio:lerp(.65,.98,S)},
+    coupling,
+    event_sensitivity:{delight:lerp(.60,1.50,V),reunion:lerp(.50,1.80,So),rejection:lerp(.60,1.60,1-V),fatigue:lerp(.60,1.40,1-A)},
+    step_minutes:1,
+  };
+}
+
+const MOOD_PHRASES={
+  very_low:['dark','bleak','heavy','grim'],low:['subdued','flat','muted','dim'],
+  mid:['steady','level','even','settled'],high:['bright','warm','lifted','good'],
+  very_high:['elated','luminous','alive','light'],
+};
+const ENERGY_PHRASES={
+  very_low:['drained','spent','empty','hollow'],low:['sluggish','weary','slow','worn'],
+  mid:['nominal','present','awake'],high:['alert','energized','clear'],very_high:['charged','buzzing','sharp'],
+};
+const ALL_PHRASES={mood:MOOD_PHRASES,energy:ENERGY_PHRASES,
+  curiosity:{very_low:['disengaged','incurious'],low:['quiet','thin'],mid:['engaged','curious'],high:['leaning in','tuned in'],very_high:['fascinated','lit up']},
+  affection:{very_low:['distant','cold'],low:['reserved','guarded'],mid:['open','present'],high:['fond','warm'],very_high:['deeply fond','attached']},
+  focus:{very_low:['scattered','drifting'],low:['distracted','thin'],mid:['tracking fine','on it'],high:['focused','locked in'],very_high:['razor-sharp','deep in it']},
+};
+function stateHash(s){let h=0x811c9dc5;for(const v of VARS){const b=Math.round(s[v]*1e6);h=(Math.imul(h^b,0x01000193)>>>0);}return(h>>>0)/0x100000000;}
+function compileMoodLine(state,schema,nowMs,prev){
+  const eff={};for(const v of VARS)eff[v]=effBaseline(v,schema,nowMs);
+  const scored=VARS.map(v=>({v,absDev:Math.abs(state[v]-eff[v])})).sort((a,b)=>b.absDev-a.absDev);
+  const notable=scored.filter(s=>s.absDev>=.08).slice(0,2);
+  if(!notable.length)notable.push(scored[0]);
+  const h=stateHash(state);
+  const phrases=notable.map(({v})=>{const pool=ALL_PHRASES[v][band5(state[v])];return pool[Math.floor(h*pool.length)%pool.length];});
+  let line=phrases.join('; ')+'.';
+  if(prev){const d=state[notable[0].v]-prev[notable[0].v];if(d>.03)line+=' Lifting.';else if(d<-.03)line+=' Still sliding.';}
+  return line;
+}
+
+// ── THREE.JS SCENE SETUP ─────────────────────────────────────────────────
+
+const cv = document.getElementById('cv');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0e0b08);
+scene.fog = new THREE.Fog(0x0e0b08, 18, 32);
+
+const W = window.innerWidth, H = window.innerHeight;
+const camera = new THREE.PerspectiveCamera(58, W/H, 0.1, 80);
+
+const renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(W, H);
+renderer.shadowMap.enabled = true;
+
+window.addEventListener('resize', () => {
+  const w=window.innerWidth, h=window.innerHeight;
+  camera.aspect=w/h; camera.updateProjectionMatrix();
+  renderer.setSize(w,h);
+});
+
+// Lights
+const ambient = new THREE.AmbientLight(0x30241a, 1.2);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
+sun.position.set(6,10,8); sun.castShadow=true;
+sun.shadow.mapSize.width=1024; sun.shadow.mapSize.height=1024;
+sun.shadow.camera.near=0.5; sun.shadow.camera.far=30;
+sun.shadow.camera.left=-10; sun.shadow.camera.right=10;
+sun.shadow.camera.top=10; sun.shadow.camera.bottom=-10;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x4060a0, 0.5);
+fill.position.set(-5,4,-6); scene.add(fill);
+
+// Ground
+const groundGeo = new THREE.CylinderGeometry(7.2, 7.2, 0.08, 48);
+const groundMat = new THREE.MeshPhongMaterial({color:0x1a1410, shininess:5});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.position.y = -0.04; ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid ring lines (manual, no GridHelper which has color issues in r128 dark scenes)
+for(let i=1; i<=3; i++){
+  const r = i*2.1;
+  const pts = [];
+  for(let a=0; a<=64; a++) pts.push(new THREE.Vector3(Math.cos(a/64*Math.PI*2)*r, 0.01, Math.sin(a/64*Math.PI*2)*r));
+  const ringGeo = new THREE.BufferGeometry().setFromPoints(pts);
+  scene.add(new THREE.Line(ringGeo, new THREE.LineBasicMaterial({color:0x2a2218})));
+}
+
+// ── AVATAR CONSTRUCTION ─────────────────────────────────────────────────
+
+function buildAvatarMesh(){
+  const g = new THREE.Group();
+  const headMat = new THREE.MeshPhongMaterial({color:0xe8a33d, shininess:70});
+  const bodyMat = new THREE.MeshPhongMaterial({color:0x8a7a6a, shininess:25});
+  const limbMat = new THREE.MeshPhongMaterial({color:0x7a6a5a, shininess:15});
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.28,10,8), headMat);
+  head.position.y = 1.18; head.castShadow=true;
+
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(.14,.20,.55,9), bodyMat);
+  torso.position.y = .73; torso.castShadow=true;
+
+  // Arms (pivot at shoulder so rotation swings naturally)
+  const lArmPivot = new THREE.Object3D(); lArmPivot.position.set(-.27,.90,0);
+  const lArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(.053,.053,.42,6), limbMat);
+  lArmMesh.position.y=-.21; lArmMesh.castShadow=true; lArmPivot.add(lArmMesh);
+
+  const rArmPivot = new THREE.Object3D(); rArmPivot.position.set(.27,.90,0);
+  const rArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(.053,.053,.42,6), limbMat);
+  rArmMesh.position.y=-.21; rArmMesh.castShadow=true; rArmPivot.add(rArmMesh);
+
+  // Legs (pivot at hip)
+  const lLegPivot = new THREE.Object3D(); lLegPivot.position.set(-.11,.46,0);
+  const lLegMesh = new THREE.Mesh(new THREE.CylinderGeometry(.068,.062,.50,6), limbMat);
+  lLegMesh.position.y=-.25; lLegMesh.castShadow=true; lLegPivot.add(lLegMesh);
+
+  const rLegPivot = new THREE.Object3D(); rLegPivot.position.set(.11,.46,0);
+  const rLegMesh = new THREE.Mesh(new THREE.CylinderGeometry(.068,.062,.50,6), limbMat);
+  rLegMesh.position.y=-.25; rLegMesh.castShadow=true; rLegPivot.add(rLegMesh);
+
+  // Selection ring (torus, hidden by default)
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(.38,.025,6,32),
+    new THREE.MeshBasicMaterial({color:0xe8a33d, transparent:true, opacity:0})
+  );
+  ring.rotation.x = Math.PI/2; ring.position.y=1.18;
+
+  g.add(head,torso,lArmPivot,rArmPivot,lLegPivot,rLegPivot,ring);
+  g.userData.parts={head,torso,lArmPivot,rArmPivot,lLegPivot,rLegPivot,ring,headMat,bodyMat,limbMat};
+  return g;
+}
+
+// ── AGENT FACTORY ────────────────────────────────────────────────────────
+
+const ARENA_R = 5.5;
+
+function makeAgent(seed, slotAngle){
+  const schema = generatePersona(seed);
+  const state={},vel={},noise={};
+  for(const v of VARS){state[v]=schema.baselines[v];vel[v]=0;noise[v]=0;}
+
+  const group = buildAvatarMesh();
+  scene.add(group);
+
+  const r = ARENA_R * (.3 + .5*Math.random());
+  const pos = {x:Math.cos(slotAngle)*r, z:Math.sin(slotAngle)*r};
+  group.position.set(pos.x, 0, pos.z);
+
+  const ta = Math.random()*Math.PI*2;
+  const tr = Math.random()*ARENA_R*.85;
+  const target = {x:Math.cos(ta)*tr, z:Math.sin(ta)*tr};
+
+  return{seed, schema, state, vel, noise, group,
+    pos, target, facing:0, stepT:0, prevState:null, pendingKicks:null};
+}
+
+// ── STATE → VISUAL ───────────────────────────────────────────────────────
+
+function applyState(av, isSelected){
+  const{state, group}=av;
+  const{headMat,bodyMat,limbMat,ring}=group.userData.parts;
+
+  // mood → head hue (220°=blue-slate → 38°=amber)
+  const hue = lerp(220,38,state.mood);
+  const sat = lerp(.12,.78,state.mood);
+  const lit = lerp(.28,.64,state.mood);
+  headMat.color.setHSL(hue/360, sat, lit);
+
+  // curiosity → head scale
+  const cs = lerp(.82,1.22,state.curiosity);
+  group.userData.parts.head.scale.setScalar(cs);
+
+  // affection → torso warm emissive glow
+  const aff = state.affection;
+  bodyMat.emissive.setRGB(aff*.28, aff*.04, aff*.13);
+
+  // energy → torso saturation/brightness
+  const eL = lerp(.22,.52,state.energy);
+  bodyMat.color.setHSL(24/360, .28, eL);
+  limbMat.color.setHSL(22/360, .20, eL*.82);
+
+  // selection ring
+  ring.material.opacity = isSelected ? 0.9 : 0;
+}
+
+// ── WANDER AI ────────────────────────────────────────────────────────────
+
+function updateWalker(av){
+  const{state, group}=av;
+  const speed = lerp(.004,.032,state.energy);
+  const dx=av.target.x-av.pos.x, dz=av.target.z-av.pos.z;
+  const dist=Math.sqrt(dx*dx+dz*dz);
+
+  if(dist<0.35){
+    // New target — focus controls how much the heading changes
+    const spread = lerp(Math.PI*.25, Math.PI*1.8, 1-state.focus);
+    const newAngle = av.facing + (Math.random()-.5)*2*spread;
+    const newR = ARENA_R*(.25+.7*Math.random());
+    av.target={x:Math.cos(newAngle)*newR, z:Math.sin(newAngle)*newR};
+    // Keep inside arena
+    const tr=Math.sqrt(av.target.x**2+av.target.z**2);
+    if(tr>ARENA_R){av.target.x*=ARENA_R/tr;av.target.z*=ARENA_R/tr;}
+  } else {
+    av.pos.x+=dx/dist*speed;
+    av.pos.z+=dz/dist*speed;
+    // Clamp to arena
+    const r=Math.sqrt(av.pos.x**2+av.pos.z**2);
+    if(r>ARENA_R){av.pos.x*=ARENA_R/r;av.pos.z*=ARENA_R/r;}
+    av.facing=Math.atan2(dx,dz);
+    group.rotation.y=av.facing;
+  }
+  group.position.set(av.pos.x,0,av.pos.z);
+
+  // Walk cycle
+  av.stepT+=speed*18;
+  const swing=Math.sin(av.stepT)*lerp(.15,.52,state.energy);
+  const{lArmPivot,rArmPivot,lLegPivot,rLegPivot}=group.userData.parts;
+  lArmPivot.rotation.x= swing; rArmPivot.rotation.x=-swing;
+  lLegPivot.rotation.x=-swing; rLegPivot.rotation.x= swing;
+}
+
+// ── ENCOUNTER BEAMS ──────────────────────────────────────────────────────
+
+const BEAM_DIST=3.2;
+const activeBeams=[];
+
+function updateBeams(ags){
+  for(const b of activeBeams)scene.remove(b);
+  activeBeams.length=0;
+  for(let i=0;i<ags.length;i++){
+    for(let j=i+1;j<ags.length;j++){
+      const a=ags[i],b=ags[j];
+      const dx=a.pos.x-b.pos.x,dz=a.pos.z-b.pos.z;
+      const dist=Math.sqrt(dx*dx+dz*dz);
+      if(dist>=BEAM_DIST)continue;
+      const alpha=(1-dist/BEAM_DIST)*.85;
+      const moodAvg=(a.state.mood+b.state.mood)*.5;
+      const affAvg=(a.state.affection+b.state.affection)*.5;
+      const hue=lerp(220,38,moodAvg);
+      const geo=new THREE.BufferGeometry();
+      const pts=new Float32Array([a.pos.x,.85,a.pos.z,b.pos.x,.85,b.pos.z]);
+      geo.setAttribute('position',new THREE.BufferAttribute(pts,3));
+      const mat=new THREE.LineBasicMaterial({
+        color:new THREE.Color().setHSL(hue/360,lerp(.4,.8,affAvg),.6),
+        transparent:true,opacity:alpha
+      });
+      const line=new THREE.Line(geo,mat);
+      scene.add(line);
+      activeBeams.push(line);
+    }
+  }
+}
+
+// ── ORBIT CAMERA ─────────────────────────────────────────────────────────
+
+let orbitTheta=.55, orbitPhi=1.05, orbitRadius=15;
+let isDragging=false, lastMx=0, lastMy=0, didDrag=false;
+
+cv.addEventListener('mousedown',e=>{
+  if(e.button!==0)return;
+  isDragging=true;didDrag=false;lastMx=e.clientX;lastMy=e.clientY;
+});
+window.addEventListener('mousemove',e=>{
+  if(!isDragging)return;
+  if(Math.abs(e.clientX-lastMx)>3||Math.abs(e.clientY-lastMy)>3)didDrag=true;
+  orbitTheta-=(e.clientX-lastMx)*.007;
+  orbitPhi=Math.max(.12,Math.min(Math.PI-.12,orbitPhi+(e.clientY-lastMy)*.007));
+  lastMx=e.clientX;lastMy=e.clientY;
+});
+window.addEventListener('mouseup',e=>{
+  if(isDragging&&!didDrag&&e.button===0)handleClick(e);
+  isDragging=false;
+});
+cv.addEventListener('wheel',e=>{
+  orbitRadius=Math.max(5,Math.min(26,orbitRadius+e.deltaY*.022));
+  e.preventDefault();
+},{passive:false});
+
+function updateCamera(){
+  const x=orbitRadius*Math.sin(orbitPhi)*Math.sin(orbitTheta);
+  const y=orbitRadius*Math.cos(orbitPhi);
+  const z=orbitRadius*Math.sin(orbitPhi)*Math.cos(orbitTheta);
+  camera.position.set(x,y,z);
+  camera.lookAt(0,.8,0);
+}
+
+// ── RAYCAST SELECTION ────────────────────────────────────────────────────
+
+const raycaster=new THREE.Raycaster();
+const mouseNDC=new THREE.Vector2();
+let selectedIdx=0;
+
+function handleClick(e){
+  const rect=cv.getBoundingClientRect();
+  mouseNDC.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouseNDC.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouseNDC,camera);
+  const meshes=[];
+  for(let i=0;i<agents.length;i++){
+    agents[i].group.traverse(obj=>{
+      if(obj.isMesh){obj.userData._agentIdx=i;meshes.push(obj);}
+    });
+  }
+  const hits=raycaster.intersectObjects(meshes);
+  if(hits.length>0){
+    selectAgent(hits[0].object.userData._agentIdx);
+  }
+}
+
+function selectAgent(idx){
+  selectedIdx=idx;
+  renderPanel();
+  buildAgentTabs();
+}
+
+// ── UI PANEL ─────────────────────────────────────────────────────────────
+
+function renderPanel(){
+  if(!agents.length)return;
+  const av=agents[selectedIdx];
+  const{state,schema,seed}=av;
+
+  document.getElementById('agent-name').textContent=`Agent #${selectedIdx+1}`;
+  document.getElementById('agent-seed').textContent=`seed ${seed}`;
+
+  let html='';
+  for(const v of VARS){
+    const pct=Math.round(state[v]*100);
+    const c=VAR_COLORS[v];
+    html+=`<div class="var-row">
+      <span class="var-name">${v}</span>
+      <div class="bar-wrap"><div class="bar-fill" style="width:${pct}%;background:${c}"></div></div>
+      <span class="var-val">${state[v].toFixed(2)}</span>
+    </div>`;
+  }
+  document.getElementById('state-bars').innerHTML=html;
+  document.getElementById('mood-line-text').textContent=compileMoodLine(state,schema,Date.now(),av.prevState);
+}
+
+const EVENT_LIST=[
+  {type:'delight',cls:'ev-pos'},{type:'reunion',cls:'ev-pos'},{type:'praise',cls:'ev-pos'},
+  {type:'play',cls:'ev-pos'},{type:'discovery',cls:'ev-pos'},{type:'comfort',cls:'ev-pos'},
+  {type:'distress',cls:'ev-neg'},{type:'conflict',cls:'ev-neg'},{type:'fatigue',cls:'ev-neg'},
+  {type:'rejection',cls:'ev-neg'},{type:'boredom',cls:'ev-neg'},{type:'frustration',cls:'ev-neg'},
+  {type:'surprise',cls:''},{type:'challenge',cls:''},{type:'absence',cls:''},
+];
+(function buildEventGrid(){
+  const grid=document.getElementById('event-grid');
+  for(const{type,cls}of EVENT_LIST){
+    const b=document.createElement('button');
+    b.className=`ev-btn ${cls}`;b.textContent=type;
+    b.onclick=()=>{
+      if(!agents.length)return;
+      agents[selectedIdx].pendingKicks=eventsToKicks(type,agents[selectedIdx].schema);
+    };
+    grid.appendChild(b);
+  }
+})();
+
+function buildAgentTabs(){
+  const strip=document.getElementById('agent-strip');
+  strip.innerHTML='';
+  for(let i=0;i<agents.length;i++){
+    const av=agents[i];
+    const hue=lerp(220,38,av.state.mood);
+    const bg=`hsl(${hue},50%,30%)`;
+    const div=document.createElement('div');
+    div.className='agent-tab'+(i===selectedIdx?' active':'');
+    div.style.background=bg;
+    div.textContent=i+1;
+    div.onclick=()=>selectAgent(i);
+    strip.appendChild(div);
+  }
+}
+
+// ── CONTROL WIRING ───────────────────────────────────────────────────────
+
+let simSpeed=8, globalLam=null, useSecond=false, useSocial=true, paused=false;
+
+document.getElementById('sl-speed').oninput=e=>{simSpeed=+e.target.value;document.getElementById('lv-speed').textContent=simSpeed;};
+document.getElementById('sl-lam').oninput=e=>{globalLam=+e.target.value;document.getElementById('lv-lam').textContent=(+e.target.value).toFixed(2);};
+document.getElementById('sl-agents').oninput=e=>{
+  const n=+e.target.value;document.getElementById('lv-agents').textContent=n;
+  rebuildAgents(n);
+};
+document.getElementById('ck-second').onchange=e=>{useSecond=e.target.checked;};
+document.getElementById('ck-social').onchange=e=>{useSocial=e.target.checked;};
+
+function togglePause(){
+  paused=!paused;
+  document.getElementById('btn-pause').textContent=paused?'Resume':'Pause';
+}
+
+// ── AGENT POOL ───────────────────────────────────────────────────────────
+
+let agents=[];
+let currentSeeds=[42,137,271,512,777,1024,2048,4096];
+
+function rebuildAgents(n){
+  for(const av of agents)scene.remove(av.group);
+  agents=[];
+  for(const b of activeBeams)scene.remove(b);activeBeams.length=0;
+  for(let i=0;i<n;i++){
+    const slotAngle=(i/n)*Math.PI*2;
+    agents.push(makeAgent(currentSeeds[i]||Math.floor(Math.random()*9999), slotAngle));
+  }
+  selectedIdx=0;
+  renderPanel();
+  buildAgentTabs();
+}
+
+function randomiseSeeds(){
+  const n=agents.length;
+  currentSeeds=Array.from({length:8},()=>Math.floor(Math.random()*99999));
+  rebuildAgents(n);
+}
+
+// ── SIMULATION LOOP ──────────────────────────────────────────────────────
+
+let simTime=new Date(); simTime.setSeconds(0,0);
+let physAcc=0, lastPerfT=performance.now();
+
+function physicsStep(){
+  const nowMs=simTime.getTime();
+  if(useSocial){
+    for(const av of agents){
+      const peers=agents.filter(o=>o!==av).map(o=>{
+        const dx=av.pos.x-o.pos.x,dz=av.pos.z-o.pos.z;
+        const d=Math.sqrt(dx*dx+dz*dz);
+        if(d>=BEAM_DIST)return null;
+        return{state:o.state,schema:o.schema,strength:(1-d/BEAM_DIST)*.035};
+      }).filter(Boolean);
+      if(peers.length){
+        const sk=socialInfluenceKicks(av.schema,peers);
+        if(av.pendingKicks)for(const v of VARS)av.pendingKicks[v]=(av.pendingKicks[v]||0)+sk[v];
+        else av.pendingKicks=sk;
+      }
+    }
+  }
+  for(const av of agents){
+    const sc={...av.schema};
+    if(globalLam!==null)sc.homeostasis_rate=globalLam;
+    av.prevState={...av.state};
+    const r=engineStep(av.state,av.vel,av.noise,sc,nowMs,av.pendingKicks,useSecond);
+    av.state=r.state;av.vel=r.vel;av.noise=r.noise;
+    av.pendingKicks=null;
+  }
+  simTime=new Date(nowMs+(agents[0]?.schema.step_minutes||1)*60000);
+}
+
+// ── RENDER LOOP ──────────────────────────────────────────────────────────
+
+let frameCount=0;
+function renderLoop(t){
+  requestAnimationFrame(renderLoop);
+
+  const dt=t-lastPerfT; lastPerfT=t;
+
+  if(!paused){
+    physAcc+=dt/1000*simSpeed;
+    while(physAcc>=1){physicsStep();physAcc--;}
+  }
+
+  // Update walkers
+  for(const av of agents)updateWalker(av);
+
+  // Apply state to visuals
+  for(let i=0;i<agents.length;i++)applyState(agents[i],i===selectedIdx);
+
+  // Beams (every 3 frames to reduce GC)
+  if(frameCount%3===0)updateBeams(agents);
+  frameCount++;
+
+  // UI updates (every ~200ms)
+  if(frameCount%12===0){
+    renderPanel();
+    buildAgentTabs();
+    document.getElementById('clock').textContent='sim '+simTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  }
+
+  updateCamera();
+  renderer.render(scene,camera);
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────
+
+rebuildAgents(5);
+requestAnimationFrame(renderLoop);
+</script>
+</body>
+</html>

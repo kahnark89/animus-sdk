@@ -71,6 +71,36 @@ function simulate() {
   console.log('   Open it in any browser — it runs the shipping engine on your schema.');
 }
 
+// Generates a self-contained 3D Three.js simulator with multiple wandering
+// personas. When a schema is available the first agent uses it; additional
+// agents are seeded from the schema id hash so they're consistent across runs.
+function simulate3d() {
+  let seeds = [42, 137, 271, 512, 777];
+  try {
+    const { schema } = loadSchema();
+    // Derive seeds from schema id for reproducibility
+    let h = 0;
+    const id = String(schema.id || 'animus');
+    for (let i = 0; i < id.length; i++) { h = Math.imul(h ^ id.charCodeAt(i), 0x9e3779b9) >>> 0; }
+    seeds = [h % 99991, (h * 0x6d2b79f5 >>> 0) % 99991, 137, 271, 512];
+  } catch (_) {
+    // No schema — use default seeds; simulator works standalone
+  }
+
+  let html = fs.readFileSync(path.join(templatesDir, 'simulator-3d.html'), 'utf8');
+  // Patch the default seed array with schema-derived seeds
+  html = html.replace(
+    'let currentSeeds=[42,137,271,512,777,1024,2048,4096];',
+    `let currentSeeds=[${seeds.concat([1024,2048,4096]).join(',')}];`
+  );
+  const out = path.join(cwd, 'animus', 'simulator-3d.html');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, html);
+  console.log('✓  Built ' + path.relative(cwd, out));
+  console.log('   Open it in any browser — 5 wandering agents driven by the affective engine.');
+  console.log('   Loads Three.js r128 from unpkg CDN; requires an internet connection once.');
+}
+
 function status() {
   const { schema } = loadSchema();
   const { defaultMemoryPath } = require('../src/index.js');
@@ -106,11 +136,13 @@ function status() {
 
 if (cmd === 'init') init();
 else if (cmd === 'simulate') simulate();
+else if (cmd === 'simulate-3d') simulate3d();
 else if (cmd === 'status') status();
 else {
   console.log('animus-sdk CLI\n');
   console.log('Usage:');
-  console.log('  animus init        scaffold animus/ in current project');
-  console.log('  animus simulate    build animus/simulator.html — the live state engine on your schema');
-  console.log('  animus status      show schema, λ, and persisted state');
+  console.log('  animus init          scaffold animus/ in current project');
+  console.log('  animus simulate      build animus/simulator.html — live 2D state traces on your schema');
+  console.log('  animus simulate-3d   build animus/simulator-3d.html — 3D walking avatars (Three.js r128)');
+  console.log('  animus status        show schema, λ, and persisted state');
 }
